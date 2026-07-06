@@ -1,0 +1,6 @@
+{
+  "name": "Ranisa",
+  "description": "Complete Rice Broker Accounting application used by brokers to maintain contracts, buyer accounts, seller accounts, payments, balances, and transaction history.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

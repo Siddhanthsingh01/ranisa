@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="200dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+
+    <!-- White Circular Background for contrast -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M50,50m-48,0a48,48 0,1 1,96 0a48,48 0,1 1,-96 0" />
+
+    <!-- Gold circular/swoosh border accent -->
+    <path
+        android:strokeWidth="1.5"
+        android:strokeColor="#FFC107"
+        android:fillColor="#00000000"
+        android:pathData="M92,50c0,23.196 -18.804,42 -42,42c-23.196,0 -42,-18.804 -42,-42c0,-23.196 18.804,-42 42,-42" />
+
+    <!-- Stylized Green Leafy Stalk on Right -->
+    <path
+        android:fillColor="#2E7D32"
+        android:pathData="M75,65 C78,55 83,48 88,38 C80,45 76,52 75,65" />
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M78,50 C82,45 86,43 90,40 C85,46 81,49 78,50" />
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M75,58 C80,54 84,53 88,51 C83,56 79,57 75,58" />
+    <path
+        android:fillColor="#81C784"
+        android:pathData="M78,41 C81,36 84,34 88,32 C84,38 81,40 78,41" />
+
+    <!-- Stylized Golden Wheat Stalk on Left -->
+    <path
+        android:fillColor="#FF9800"
+        android:pathData="M25,65 C22,55 17,48 12,38 C20,45 24,52 25,65" />
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M22,50 C18,45 14,43 10,40 C15,46 19,49 22,50" />
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M25,58 C20,54 16,53 12,51 C17,56 21,57 25,58" />
+    <path
+        android:fillColor="#FFE082"
+        android:pathData="M22,41 C19,36 16,34 12,32 C16,38 19,40 22,41" />
+
+    <!-- The Stylized 'R' in Green -->
+    <!-- Stem of R -->
+    <path
+        android:fillColor="#1B5E20"
+        android:pathData="M38,30 L45,30 L45,75 L38,75 Z" />
+    <!-- Loop of R -->
+    <path
+        android:fillColor="#1B5E20"
+        android:pathData="M44,30 C54,30 62,34 62,44 C62,54 54,56 44,56 L44,30 Z" />
+    <!-- Loop Inner Cutout -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M45,36 C50,36 55,38 55,44 C55,50 50,51 45,51 L45,36 Z" />
+    <!-- Leg of R -->
+    <path
+        android:fillColor="#1B5E20"
+        android:pathData="M45,54 L52,54 L66,75 L58,75 Z" />
+
+    <!-- Golden Crown on Top of 'R' -->
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M38,24 L35,16 L43,20 L50,13 L57,20 L65,16 L62,24 Z" />
+    <!-- Small Crown Base -->
+    <path
+        android:fillColor="#FF9800"
+        android:pathData="M38,24 L62,24 L62,26 L38,26 Z" />
+    <!-- Circles on Crown Peaks -->
+    <path
+        android:fillColor="#FFD54F"
+        android:pathData="M35,16 m-1.5,0 a1.5,1.5 0 1,0 3,0 a1.5,1.5 0 1,0 -3,0" />
+    <path
+        android:fillColor="#FFD54F"
+        android:pathData="M50,13 m-1.8,0 a1.8,1.8 0 1,0 3.6,0 a1.8,1.8 0 1,0 -3.6,0" />
+    <path
+        android:fillColor="#FFD54F"
+        android:pathData="M65,16 m-1.5,0 a1.5,1.5 0 1,0 3,0 a1.5,1.5 0 1,0 -3,0" />
+
+    <!-- 3D Gold Buildings/Pillars rising inside R's loop -->
+    <path
+        android:fillColor="#FFB300"
+        android:pathData="M47,56 L51,56 L51,46 L47,43 Z" />
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M51,56 L55,56 L55,42 L51,39 Z" />
+    <path
+        android:fillColor="#FFE082"
+        android:pathData="M55,56 L59,56 L59,48 L55,45 Z" />
+
+    <!-- Golden Swoosh curved ribbon sweeping upwards from bottom left -->
+    <path
+        android:fillColor="#FFA000"
+        android:pathData="M18,66 C32,78 68,78 82,54 C70,72 38,72 18,66" />
+    <path
+        android:fillColor="#FFD54F"
+        android:pathData="M19,65 C33,76 67,76 81,53 C71,71 39,71 19,65" />
+
+    <!-- "RANISA" and "FOOD GRAIN" text elements represented with clean visual banner -->
+    <!-- Elegant Dark Green banner at the bottom -->
+    <path
+        android:fillColor="#1B5E20"
+        android:pathData="M25,80 L75,80 C78,80 80,82 80,85 L80,89 C80,92 78,94 75,94 L25,94 C22,94 20,92 20,89 L20,85 C20,82 22,80 25,80 Z" />
+
+    <!-- Gold horizontal highlight lines on the banner -->
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M23,82 L77,82 L77,83 L23,83 Z" />
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M23,91 L77,91 L77,92 L23,92 Z" />
+
+</vector>
