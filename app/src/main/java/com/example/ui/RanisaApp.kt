@@ -75,6 +75,18 @@ fun RanisaApp(
         factory = RanisaViewModel.Factory(LocalContext.current.applicationContext as Application)
     )
 ) {
+    val context = LocalContext.current
+    val sharedPrefs = remember(context) { context.getSharedPreferences("ranisa_prefs", android.content.Context.MODE_PRIVATE) }
+    var isAppLocked by remember { mutableStateOf(sharedPrefs.getBoolean("biometric_lock_enabled", false)) }
+
+    if (isAppLocked) {
+        BiometricLockScreen(
+            onUnlockSuccess = { isAppLocked = false },
+            context = context
+        )
+        return
+    }
+
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -146,7 +158,8 @@ fun RanisaApp(
                         Triple("seller_master_list", Icons.Default.Storefront, "New Seller"),
                         Triple("buyer_master_list", Icons.Default.People, "New Buyer"),
                         Triple("broker_master_list", Icons.Default.People, "New Broker"),
-                        Triple("log_history", Icons.Default.History, "Logs")
+                        Triple("log_history", Icons.Default.History, "Logs"),
+                        Triple("security_settings", Icons.Default.Lock, "Security")
                     )
 
                     menuItems.forEach { (route, icon, label) ->
@@ -442,6 +455,9 @@ fun RanisaApp(
                     composable("settings") {
                         SettingsScreen(navController, viewModel)
                     }
+                    composable("security_settings") {
+                        SecuritySettingsScreen(navController)
+                    }
                     composable("search") {
                         SearchScreen(navController, viewModel)
                     }
@@ -674,6 +690,7 @@ fun HomeScreen(navController: NavController, viewModel: RanisaViewModel) {
     val payments by viewModel.allPayments.collectAsState()
     val rtdbFullBuyers by viewModel.rtdbFullBuyers.collectAsState()
     val rtdbFullSellers by viewModel.rtdbFullSellers.collectAsState()
+    val rtdbFullBrokers by viewModel.rtdbFullBrokers.collectAsState()
 
     val currentCalendar = java.util.Calendar.getInstance()
     val hour = currentCalendar.get(java.util.Calendar.HOUR_OF_DAY)
@@ -897,6 +914,15 @@ fun HomeScreen(navController: NavController, viewModel: RanisaViewModel) {
                             icon = Icons.Default.Storefront,
                             iconColor = Color(0xFF2563EB),
                             iconBgColor = Color(0xFFDBEAFE),
+                            modifier = Modifier.weight(1f)
+                        )
+                        // Stat 5: Brokers
+                        SummaryStatItem(
+                            value = "${rtdbFullBrokers.size}",
+                            label = "Brokers",
+                            icon = Icons.Default.Business,
+                            iconColor = Color(0xFF6366F1),
+                            iconBgColor = Color(0xFFE0E7FF),
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -1424,6 +1450,7 @@ fun BillEntryScreen(
     val rtdbMobiles by viewModel.rtdbMobiles.collectAsState()
     val rtdbGsts by viewModel.rtdbGsts.collectAsState()
     val rtdbBrokers by viewModel.rtdbBrokers.collectAsState()
+    val rtdbFullBrokers by viewModel.rtdbFullBrokers.collectAsState()
 
     // 20 Fields matching paper bill exact layout structure
     var date by remember { mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())) }
@@ -1446,6 +1473,7 @@ fun BillEntryScreen(
     var amountInWords by remember { mutableStateOf("") }
     var sellerSignature by remember { mutableStateOf("Verified") }
     var creditDays by remember { mutableStateOf("") }
+    var eb by remember { mutableStateOf("") }
 
     // legacy fields for DB backward compatibility
     var place by remember { mutableStateOf("") }
@@ -1512,6 +1540,7 @@ fun BillEntryScreen(
     var initialAmountInWords by remember { mutableStateOf("") }
     var initialSellerSignature by remember { mutableStateOf("Verified") }
     var initialCreditDays by remember { mutableStateOf("") }
+    var initialEb by remember { mutableStateOf("") }
     var initialSellerAddress by remember { mutableStateOf("") }
     var initialBuyerAddress by remember { mutableStateOf("") }
     var initialItemEntries by remember { mutableStateOf<List<ContractItem>>(emptyList()) }
@@ -1596,6 +1625,7 @@ fun BillEntryScreen(
                 amountInWords = b.amountInWords
                 sellerSignature = b.sellerSignature
                 creditDays = if (b.creditDays > 0) b.creditDays.toString() else ""
+                eb = b.eb
 
                 // load updated fields
                 sellerAddress = b.sellerAddress
@@ -1641,6 +1671,7 @@ fun BillEntryScreen(
             delivery = ""
             payment = ""
             creditDays = ""
+            eb = ""
             itemEntries = listOf(ContractItem(particulars = "", bags = 0, packing = "", qtls = 0.0, rate = 0.0))
             itemBagsText.clear()
             itemPackingText.clear()
@@ -1676,6 +1707,7 @@ fun BillEntryScreen(
                     initialAmountInWords = b.amountInWords
                     initialSellerSignature = b.sellerSignature
                     initialCreditDays = if (b.creditDays > 0) b.creditDays.toString() else ""
+                    initialEb = b.eb
                     initialSellerAddress = b.sellerAddress
                     initialBuyerAddress = b.buyerAddress
                     val parsed = getItemsForBill(b)
@@ -1702,6 +1734,7 @@ fun BillEntryScreen(
                 initialAmountInWords = amountInWords
                 initialSellerSignature = sellerSignature
                 initialCreditDays = creditDays
+                initialEb = eb
                 initialSellerAddress = sellerAddress
                 initialBuyerAddress = buyerAddress
                 initialItemEntries = itemEntries
@@ -1788,17 +1821,18 @@ fun BillEntryScreen(
         remark1 = remark1,
         remark2 = remark2,
         brokerName = brokerName,
-        brokerId = selectedBrokerId
+        brokerId = selectedBrokerId,
+        eb = eb
     )
 
     val hasUnsavedChanges = remember(
         billNumber, sellerName, buyerName, gstNo, brokerName, particulars, bags, quintals, rate, transport, delivery,
-        lorryNo, payment, mobileNo, brand, lorryFreight, amountInWords, sellerSignature, creditDays,
+        lorryNo, payment, mobileNo, brand, lorryFreight, amountInWords, sellerSignature, creditDays, eb,
         sellerAddress, buyerAddress, itemEntries, paymentReceivedInput,
         initialBillNumber, initialSellerName, initialBuyerName, initialGstNo, initialBrokerName, initialParticulars,
         initialBags, initialQuintals, initialRate, initialTransport, initialDelivery, initialLorryNo,
         initialPayment, initialMobileNo, initialBrand, initialLorryFreight, initialAmountInWords,
-        initialSellerSignature, initialCreditDays, initialSellerAddress, initialBuyerAddress, initialItemEntries
+        initialSellerSignature, initialCreditDays, initialEb, initialSellerAddress, initialBuyerAddress, initialItemEntries
     ) {
         billNumber != initialBillNumber ||
         sellerName != initialSellerName ||
@@ -1819,6 +1853,7 @@ fun BillEntryScreen(
         amountInWords != initialAmountInWords ||
         sellerSignature != initialSellerSignature ||
         creditDays != initialCreditDays ||
+        eb != initialEb ||
         sellerAddress != initialSellerAddress ||
         buyerAddress != initialBuyerAddress ||
         itemEntries != initialItemEntries ||
@@ -1849,6 +1884,7 @@ fun BillEntryScreen(
     val focusBrand = remember { FocusRequester() }
     val focusFreight = remember { FocusRequester() }
     val focusCreditDays = remember { FocusRequester() }
+    val focusEb = remember { FocusRequester() }
     val focusRemark1 = remember { FocusRequester() }
     val focusRemark2 = remember { FocusRequester() }
     
@@ -2239,34 +2275,84 @@ fun BillEntryScreen(
             // 5b. Broker Name
             // ==========================================
             Column(modifier = Modifier.fillMaxWidth()) {
-                Box(
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    OutlinedTextField(
-                        value = brokerName,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Broker Name") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("broker_name_input"),
-                        trailingIcon = {
-                            IconButton(onClick = { showAddBrokerDialog = true }) {
-                                Icon(Icons.Default.Add, contentDescription = "Add New Broker")
-                            }
-                        },
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .padding(end = 48.dp)
-                            .clickable { showBrokerSelectionDialog = true }
-                            .testTag("broker_name_click_overlay")
-                    )
+                val brokerExists = (brokersMaster.map { it.name } + rtdbBrokers).distinct().any {
+                    it.trim().equals(brokerName.trim(), ignoreCase = true)
                 }
 
+                OutlinedTextField(
+                    value = brokerName,
+                    onValueChange = { newValue ->
+                        brokerName = newValue
+                        showBrokerDropdown = true
+                        // Try to find matching broker to set selectedBrokerId
+                        val matchedBroker = rtdbFullBrokers.find { b -> b.brokerName.trim().equals(newValue.trim(), ignoreCase = true) }
+                        selectedBrokerId = matchedBroker?.brokerId ?: ""
+                    },
+                    label = { Text("Broker Name") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusBroker)
+                        .onFocusChanged { focusState ->
+                            if (focusState.isFocused) {
+                                showBrokerDropdown = true
+                            }
+                        }
+                        .testTag("broker_name_input"),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Text,
+                        imeAction = ImeAction.Done
+                    ),
+                    singleLine = true,
+                    trailingIcon = {
+                        if (!brokerExists && brokerName.isNotBlank()) {
+                            IconButton(
+                                onClick = {
+                                    newBrokerName = brokerName.trim()
+                                    showAddBrokerDialog = true
+                                },
+                                modifier = Modifier.testTag("add_broker_button")
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = "Add New Broker")
+                            }
+                        }
+                    },
+                    shape = RoundedCornerShape(12.dp)
+                )
 
+                if (showBrokerDropdown) {
+                    val filteredBrokers = (brokersMaster.map { it.name } + rtdbBrokers).distinct().filter {
+                        it.contains(brokerName, ignoreCase = true)
+                    }
+                    if (filteredBrokers.isNotEmpty()) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp, bottom = 8.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Column {
+                                filteredBrokers.take(5).forEach { name ->
+                                    Text(
+                                        text = name,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                brokerName = name
+                                                val selectedBrokerObj = rtdbFullBrokers.find { it.brokerName.equals(name, ignoreCase = true) }
+                                                if (selectedBrokerObj != null) {
+                                                    selectedBrokerId = selectedBrokerObj.brokerId
+                                                }
+                                                showBrokerDropdown = false
+                                            }
+                                            .padding(12.dp),
+                                        fontSize = 13.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -2814,6 +2900,31 @@ fun BillEntryScreen(
                     .testTag("credit_days_input"),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Next
+                ),
+                keyboardActions = KeyboardActions(
+                    onNext = { focusEb.requestFocus() }
+                ),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // ==========================================
+            // 19. EB
+            // ==========================================
+            OutlinedTextField(
+                value = eb,
+                onValueChange = { eb = it },
+                label = { Text("EB") },
+                placeholder = { Text("Enter EB") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusEb)
+                    .testTag("eb_input"),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Text,
                     imeAction = ImeAction.Done
                 ),
                 keyboardActions = KeyboardActions(
@@ -2888,8 +2999,15 @@ fun BillEntryScreen(
                                 // Delete/Remove payment action
                                 IconButton(
                                     onClick = {
-                                        viewModel.deletePayment(p)
-                                        Toast.makeText(context, "Payment Removed Successfully", Toast.LENGTH_SHORT).show()
+                                        com.example.util.BiometricHelper.runWithBiometric(
+                                            context = context,
+                                            title = "Ranisa Security",
+                                            subtitle = "Verify your fingerprint to continue.",
+                                            action = {
+                                                viewModel.deletePayment(p)
+                                                Toast.makeText(context, "Payment Removed Successfully", Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
                                     }
                                 ) {
                                     Icon(
@@ -3061,9 +3179,16 @@ fun BillEntryScreen(
                 if (billId != -1) {
                     Button(
                         onClick = {
-                            viewModel.deleteBill(currentBill)
-                            Toast.makeText(context, "Contract Bill Deleted", Toast.LENGTH_SHORT).show()
-                            navController.popBackStack()
+                            com.example.util.BiometricHelper.runWithBiometric(
+                                context = context,
+                                title = "Ranisa Security",
+                                subtitle = "Verify your fingerprint to continue.",
+                                action = {
+                                    viewModel.deleteBill(currentBill)
+                                    Toast.makeText(context, "Contract Bill Deleted", Toast.LENGTH_SHORT).show()
+                                    navController.popBackStack()
+                                }
+                            )
                         },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -3240,8 +3365,15 @@ fun BillEntryScreen(
                                     Spacer(modifier = Modifier.width(4.dp))
                                     IconButton(
                                         onClick = {
-                                            viewModel.deleteBill(bill)
-                                            Toast.makeText(context, "Contract Bill ${bill.billNumber} Deleted", Toast.LENGTH_SHORT).show()
+                                            com.example.util.BiometricHelper.runWithBiometric(
+                                                context = context,
+                                                title = "Ranisa Security",
+                                                subtitle = "Verify your fingerprint to continue.",
+                                                action = {
+                                                    viewModel.deleteBill(bill)
+                                                    Toast.makeText(context, "Contract Bill ${bill.billNumber} Deleted", Toast.LENGTH_SHORT).show()
+                                                }
+                                            )
                                         },
                                         modifier = Modifier.size(28.dp)
                                     ) {
@@ -3664,8 +3796,17 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
     var isSearchActive by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
 
+    var showDeleteLedgerDialog by remember { mutableStateOf(false) }
+    var ledgerToDeleteName by remember { mutableStateOf("") }
+    var showShareSheetForLedger by remember { mutableStateOf(false) }
+    var ledgerToShareName by remember { mutableStateOf("") }
+
     val distinctSellers = remember(bills) {
-        bills.map { it.sellerName }.distinct()
+        bills.map { it.sellerName }.distinct().filter { seller ->
+            val sellerBills = bills.filter { it.sellerName == seller }
+            val totalQtls = sellerBills.sumOf { it.quintals }
+            sellerBills.isNotEmpty() && totalQtls > 0.0
+        }
     }
 
     val filteredSellers = remember(distinctSellers, bills, searchQuery) {
@@ -3727,28 +3868,71 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
 
         if (selectedSeller.isBlank()) {
             Text("Sellers Master List", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp), fontSize = 13.sp)
-            if (filteredSellers.isEmpty()) {
+            if (distinctSellers.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                    Text("No sellers found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text("📄", fontSize = 48.sp, modifier = Modifier.padding(bottom = 12.dp))
+                        Text(
+                            text = "No Ledger Records Found",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Create your first bill to see ledger entries here.",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            } else if (filteredSellers.isEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Text("No matching sellers found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
                     items(filteredSellers) { seller ->
                         val sellerBills = bills.filter { it.sellerName == seller }
                         val totalQtls = sellerBills.sumOf { it.quintals }
+                        val matchingSeller = rtdbFullSellers.find { it.sellerName == seller }
                         Card(
                             onClick = { selectedSeller = seller },
                             modifier = Modifier.fillMaxWidth().testTag("seller_card_${seller}")
                         ) {
-                            Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Column {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(seller, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                     Text("${sellerBills.size} Registered Bills", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                Column(horizontalAlignment = Alignment.End) {
+                                Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(end = 8.dp)) {
                                     Text("Total Qtls", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text("${String.format("%.2f", totalQtls)} Qtls", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                 }
+                                
+                                LedgerOverflowMenu(
+                                    itemId = matchingSeller?.sellerId ?: seller,
+                                    onEdit = {
+                                        navController.navigate("seller_master_list")
+                                    },
+                                    onShare = {
+                                        ledgerToShareName = seller
+                                        showShareSheetForLedger = true
+                                    },
+                                    onDeleteLedger = {
+                                        ledgerToDeleteName = seller
+                                        showDeleteLedgerDialog = true
+                                    }
+                                )
                             }
                         }
                     }
@@ -3756,14 +3940,49 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
             }
         } else {
             // Selected seller: 13-column Register View
-            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(
-                    onClick = { selectedSeller = "" },
-                    modifier = Modifier.testTag("seller_ledger_back_button")
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    IconButton(
+                        onClick = { selectedSeller = "" },
+                        modifier = Modifier.testTag("seller_ledger_back_button")
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                    Text(
+                        text = "$selectedSeller's Book Registry",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                Text("$selectedSeller's Book Registry", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+
+                var showShareSheet by remember { mutableStateOf(false) }
+                OutlinedButton(
+                    onClick = { showShareSheet = true },
+                    shape = RoundedCornerShape(24.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.padding(end = 4.dp).testTag("share_full_seller_ledger_button")
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Share Full Ledger", fontSize = 11.sp)
+                }
+
+                if (showShareSheet) {
+                    FullLedgerShareSheet(
+                        ledgerName = selectedSeller,
+                        ledgerType = "seller",
+                        bills = bills.filter { it.sellerName == selectedSeller },
+                        payments = payments,
+                        onDismissRequest = { showShareSheet = false }
+                    )
+                }
             }
 
             val sellerBills = remember(bills, selectedSeller, searchQuery) {
@@ -3816,7 +4035,7 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
                             "Date" to 90, "Bill No" to 80, "Party Name" to 150, "Place" to 90,
                             "Freight" to 80, "Rate" to 70, "Qtls" to 70, 
                             "BILL AMT" to 100, "Received" to 100, "Discount" to 80, "Broker Name" to 120, "Commission" to 90,
-                            "Remark Amt" to 100, "Remark" to 150, "Balance AMT" to 100, "Status" to 100, "Action" to 180
+                            "Remark Amt" to 100, "Remark" to 150, "Balance AMT" to 100, "Status" to 100, "EB" to 100, "Action" to 180
                         )
                         headers.forEach { (text, width) ->
                             Text(
@@ -3886,6 +4105,7 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
                                         else -> "Partial Paid"
                                     }
                                     RegisterField(paymentStatus, 100, highlight = true)
+                                    RegisterField(bill.eb, 100)
 
                                     // Action Column
                                     Row(
@@ -4058,6 +4278,9 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
                                                     val statusDisplay = if (payment.paymentMode.equals("Cash", ignoreCase = true)) "DD" else payment.paymentMode.ifBlank { "Paid" }
                                                     RegisterField(statusDisplay, 100, highlight = true)
 
+                                                    // 17. EB (100dp)
+                                                    RegisterField("", 100)
+
                                                     // 16. Action (140dp) -> Payment Action Icons
                                                     Row(
                                                         modifier = Modifier.width(180.dp),
@@ -4225,10 +4448,17 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
                     confirmButton = {
                         TextButton(
                             onClick = {
-                                viewModel.deleteBill(billToDelete!!)
-                                showDeleteBillDialog = false
-                                billToDelete = null
-                                Toast.makeText(context, "Bill deleted successfully", Toast.LENGTH_SHORT).show()
+                                com.example.util.BiometricHelper.runWithBiometric(
+                                    context = context,
+                                    title = "Ranisa Security",
+                                    subtitle = "Verify your fingerprint to continue.",
+                                    action = {
+                                        viewModel.deleteBill(billToDelete!!)
+                                        showDeleteBillDialog = false
+                                        billToDelete = null
+                                        Toast.makeText(context, "Bill deleted successfully", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
                             },
                             modifier = Modifier.testTag("confirm_delete_bill_button")
                         ) {
@@ -4260,10 +4490,17 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
                     confirmButton = {
                         TextButton(
                             onClick = {
-                                viewModel.deletePayment(paymentToDelete!!)
-                                showDeletePaymentDialog = false
-                                paymentToDelete = null
-                                Toast.makeText(context, "Payment deleted successfully", Toast.LENGTH_SHORT).show()
+                                com.example.util.BiometricHelper.runWithBiometric(
+                                    context = context,
+                                    title = "Ranisa Security",
+                                    subtitle = "Verify your fingerprint to continue.",
+                                    action = {
+                                        viewModel.deletePayment(paymentToDelete!!)
+                                        showDeletePaymentDialog = false
+                                        paymentToDelete = null
+                                        Toast.makeText(context, "Payment deleted successfully", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
                             },
                             modifier = Modifier.testTag("confirm_delete_payment_button")
                         ) {
@@ -4280,6 +4517,62 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
                         ) {
                             Text("Cancel")
                         }
+                    }
+                )
+            }
+
+            if (showDeleteLedgerDialog && ledgerToDeleteName.isNotBlank()) {
+                AlertDialog(
+                    onDismissRequest = { showDeleteLedgerDialog = false },
+                    title = { Text("Delete all ledger transactions for this party?") },
+                    text = { Text("This action will remove only the ledger records.\nThe Master List will remain unchanged.") },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                com.example.util.BiometricHelper.runWithBiometric(
+                                    context = context,
+                                    title = "Ranisa Security",
+                                    subtitle = "Verify your fingerprint to continue.",
+                                    action = {
+                                        viewModel.deleteSellerLedger(
+                                            sellerName = ledgerToDeleteName,
+                                            onSuccess = {
+                                                showDeleteLedgerDialog = false
+                                                Toast.makeText(context, "Ledger transactions deleted successfully", Toast.LENGTH_SHORT).show()
+                                            },
+                                            onError = { error ->
+                                                Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+                                    }
+                                )
+                            },
+                            colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
+                        ) {
+                            Text("Delete")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDeleteLedgerDialog = false }) {
+                            Text("Cancel")
+                        }
+                    },
+                    shape = RoundedCornerShape(16.dp)
+                )
+            }
+
+            if (showShareSheetForLedger && ledgerToShareName.isNotBlank()) {
+                val filteredBillsForOwner = remember(bills, ledgerToShareName) {
+                    bills.filter { it.sellerName == ledgerToShareName }
+                }
+                FullLedgerShareSheet(
+                    ledgerName = ledgerToShareName,
+                    ledgerType = "seller",
+                    bills = filteredBillsForOwner,
+                    payments = payments,
+                    onDismissRequest = {
+                        showShareSheetForLedger = false
+                        ledgerToShareName = ""
                     }
                 )
             }
@@ -4322,8 +4615,17 @@ fun BuyerLedgerScreen(navController: NavController, viewModel: RanisaViewModel, 
     var isSearchActive by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
 
+    var showDeleteLedgerDialog by remember { mutableStateOf(false) }
+    var ledgerToDeleteName by remember { mutableStateOf("") }
+    var showShareSheetForLedger by remember { mutableStateOf(false) }
+    var ledgerToShareName by remember { mutableStateOf("") }
+
     val distinctBuyers = remember(bills) {
-        bills.map { it.buyerName }.distinct()
+        bills.map { it.buyerName }.distinct().filter { buyer ->
+            val buyerBills = bills.filter { it.buyerName == buyer }
+            val totalQtls = buyerBills.sumOf { it.quintals }
+            buyerBills.isNotEmpty() && totalQtls > 0.0
+        }
     }
 
     val filteredBuyers = remember(distinctBuyers, bills, searchQuery) {
@@ -4385,28 +4687,71 @@ fun BuyerLedgerScreen(navController: NavController, viewModel: RanisaViewModel, 
 
         if (selectedBuyer.isBlank()) {
             Text("Buyers Master List", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp), fontSize = 13.sp)
-            if (filteredBuyers.isEmpty()) {
+            if (distinctBuyers.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                    Text("No buyers found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text("📄", fontSize = 48.sp, modifier = Modifier.padding(bottom = 12.dp))
+                        Text(
+                            text = "No Ledger Records Found",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Create your first bill to see ledger entries here.",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            } else if (filteredBuyers.isEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Text("No matching buyers found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
                     items(filteredBuyers) { buyer ->
                         val buyerBills = bills.filter { it.buyerName == buyer }
                         val totalQtls = buyerBills.sumOf { it.quintals }
+                        val matchingBuyer = rtdbFullBuyers.find { it.buyerName == buyer }
                         Card(
                             onClick = { selectedBuyer = buyer },
                             modifier = Modifier.fillMaxWidth().testTag("buyer_card_${buyer}")
                         ) {
-                            Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Column {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(buyer, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                     Text("${buyerBills.size} Registered Billings", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                Column(horizontalAlignment = Alignment.End) {
+                                Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(end = 8.dp)) {
                                     Text("Total Qtls", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text("${String.format("%.2f", totalQtls)} Qtls", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                 }
+                                
+                                LedgerOverflowMenu(
+                                    itemId = matchingBuyer?.buyerId ?: buyer,
+                                    onEdit = {
+                                        navController.navigate("buyer_master_list")
+                                    },
+                                    onShare = {
+                                        ledgerToShareName = buyer
+                                        showShareSheetForLedger = true
+                                    },
+                                    onDeleteLedger = {
+                                        ledgerToDeleteName = buyer
+                                        showDeleteLedgerDialog = true
+                                    }
+                                )
                             }
                         }
                     }
@@ -4414,14 +4759,50 @@ fun BuyerLedgerScreen(navController: NavController, viewModel: RanisaViewModel, 
             }
         } else {
             // Selected buyer: 13-column Register View
-            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(
-                    onClick = { selectedBuyer = "" },
-                    modifier = Modifier.testTag("buyer_ledger_back_button")
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    IconButton(
+                        onClick = { selectedBuyer = "" },
+                        modifier = Modifier.testTag("buyer_ledger_back_button")
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                    Text(
+                        text = "$selectedBuyer's Book Registry",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontSize = 15.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                Text("$selectedBuyer's Book Registry", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, fontSize = 15.sp)
+
+                var showShareSheet by remember { mutableStateOf(false) }
+                OutlinedButton(
+                    onClick = { showShareSheet = true },
+                    shape = RoundedCornerShape(24.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.padding(end = 4.dp).testTag("share_full_buyer_ledger_button")
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Share Full Ledger", fontSize = 11.sp)
+                }
+
+                if (showShareSheet) {
+                    FullLedgerShareSheet(
+                        ledgerName = selectedBuyer,
+                        ledgerType = "buyer",
+                        bills = bills.filter { it.buyerName == selectedBuyer },
+                        payments = payments,
+                        onDismissRequest = { showShareSheet = false }
+                    )
+                }
             }
 
             val buyerBills = remember(bills, selectedBuyer, searchQuery) {
@@ -4860,10 +5241,17 @@ fun BuyerLedgerScreen(navController: NavController, viewModel: RanisaViewModel, 
                     confirmButton = {
                         TextButton(
                             onClick = {
-                                viewModel.deleteBill(billToDelete!!)
-                                showDeleteBillDialog = false
-                                billToDelete = null
-                                Toast.makeText(context, "Bill deleted successfully", Toast.LENGTH_SHORT).show()
+                                com.example.util.BiometricHelper.runWithBiometric(
+                                    context = context,
+                                    title = "Ranisa Security",
+                                    subtitle = "Verify your fingerprint to continue.",
+                                    action = {
+                                        viewModel.deleteBill(billToDelete!!)
+                                        showDeleteBillDialog = false
+                                        billToDelete = null
+                                        Toast.makeText(context, "Bill deleted successfully", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
                             },
                             modifier = Modifier.testTag("confirm_delete_bill_button")
                         ) {
@@ -4895,10 +5283,17 @@ fun BuyerLedgerScreen(navController: NavController, viewModel: RanisaViewModel, 
                     confirmButton = {
                         TextButton(
                             onClick = {
-                                viewModel.deletePayment(paymentToDelete!!)
-                                showDeletePaymentDialog = false
-                                paymentToDelete = null
-                                Toast.makeText(context, "Payment deleted successfully", Toast.LENGTH_SHORT).show()
+                                com.example.util.BiometricHelper.runWithBiometric(
+                                    context = context,
+                                    title = "Ranisa Security",
+                                    subtitle = "Verify your fingerprint to continue.",
+                                    action = {
+                                        viewModel.deletePayment(paymentToDelete!!)
+                                        showDeletePaymentDialog = false
+                                        paymentToDelete = null
+                                        Toast.makeText(context, "Payment deleted successfully", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
                             },
                             modifier = Modifier.testTag("confirm_delete_payment_button")
                         ) {
@@ -4915,6 +5310,62 @@ fun BuyerLedgerScreen(navController: NavController, viewModel: RanisaViewModel, 
                         ) {
                             Text("Cancel")
                         }
+                    }
+                )
+            }
+
+            if (showDeleteLedgerDialog && ledgerToDeleteName.isNotBlank()) {
+                AlertDialog(
+                    onDismissRequest = { showDeleteLedgerDialog = false },
+                    title = { Text("Delete all ledger transactions for this party?") },
+                    text = { Text("This action will remove only the ledger records.\nThe Master List will remain unchanged.") },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                com.example.util.BiometricHelper.runWithBiometric(
+                                    context = context,
+                                    title = "Ranisa Security",
+                                    subtitle = "Verify your fingerprint to continue.",
+                                    action = {
+                                        viewModel.deleteBuyerLedger(
+                                            buyerName = ledgerToDeleteName,
+                                            onSuccess = {
+                                                showDeleteLedgerDialog = false
+                                                Toast.makeText(context, "Ledger transactions deleted successfully", Toast.LENGTH_SHORT).show()
+                                            },
+                                            onError = { error ->
+                                                Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+                                    }
+                                )
+                            },
+                            colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
+                        ) {
+                            Text("Delete")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDeleteLedgerDialog = false }) {
+                            Text("Cancel")
+                        }
+                    },
+                    shape = RoundedCornerShape(16.dp)
+                )
+            }
+
+            if (showShareSheetForLedger && ledgerToShareName.isNotBlank()) {
+                val filteredBillsForOwner = remember(bills, ledgerToShareName) {
+                    bills.filter { it.buyerName == ledgerToShareName }
+                }
+                FullLedgerShareSheet(
+                    ledgerName = ledgerToShareName,
+                    ledgerType = "buyer",
+                    bills = filteredBillsForOwner,
+                    payments = payments,
+                    onDismissRequest = {
+                        showShareSheetForLedger = false
+                        ledgerToShareName = ""
                     }
                 )
             }
@@ -5567,12 +6018,16 @@ fun PaymentListScreen(navController: NavController, viewModel: RanisaViewModel) 
                             
                             val totalBillAmount = partyBills.sumOf { it.first.billAmount }
                             val totalReceived = partyBills.sumOf { it.second.first }
-                            val totalOutstanding = partyBills.sumOf { it.second.second }
+                            val totalOutstanding = partyBills.sumOf { maxOf(it.second.second, 0.0) }
                             
+                            val partyRemainingBalances = partyBills.map { maxOf(it.second.second, 0.0) }
+                            val partyReceivedAmounts = partyBills.map { it.second.first }
+
                             val paymentStatus = when {
-                                totalOutstanding <= 0.01 -> "Fully Paid"
-                                totalReceived <= 0.0 -> "Pending"
-                                else -> "Partial Paid"
+                                partyRemainingBalances.all { it <= 0.01 } -> "Fully Paid"
+                                partyRemainingBalances.any { it > 0.01 } && partyReceivedAmounts.any { it > 0.0 } -> "Partial Paid"
+                                partyReceivedAmounts.all { it <= 0.0 } -> "Pending"
+                                else -> "Pending"
                             }
                             
                             val statusColor = when (paymentStatus) {
@@ -5583,17 +6038,38 @@ fun PaymentListScreen(navController: NavController, viewModel: RanisaViewModel) 
 
                             Triple(partyName, latestBill, Triple(totalOutstanding, totalBillsCount, Pair(paymentStatus, statusColor)))
                         }.filter {
-                            searchQuerySection2.isBlank() || it.first.contains(searchQuerySection2, ignoreCase = true)
+                            val totalOutstanding = it.third.first
+                            totalOutstanding > 0.01 && (searchQuerySection2.isBlank() || it.first.contains(searchQuerySection2, ignoreCase = true))
                         }.sortedBy { it.first }
 
                     if (partiesList.isEmpty()) {
                         item {
-                            Text(
-                                text = "No party records found.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(vertical = 16.dp)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 48.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Text("📄", fontSize = 48.sp, modifier = Modifier.padding(bottom = 12.dp))
+                                    Text(
+                                        text = "No Ledger Records Found",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 18.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Create your first bill to see ledger entries here.",
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
                         }
                     } else {
                         items(partiesList) { (partyName, latestBill, data) ->
@@ -5679,7 +6155,7 @@ fun PaymentListScreen(navController: NavController, viewModel: RanisaViewModel) 
                 
                 val totalBillAmount = partyBillsAndData.sumOf { it.first.billAmount }
                 val totalReceived = partyBillsAndData.sumOf { it.second.first }
-                val outstandingBalance = partyBillsAndData.sumOf { it.second.second }
+                val outstandingBalance = partyBillsAndData.sumOf { maxOf(it.second.second, 0.0) }
                 val latestBill = partyBillsAndData.sortedByDescending { it.first.date }.firstOrNull()?.first
                 val firmName = latestBill?.firmName ?: "Multiple"
 
@@ -6289,8 +6765,15 @@ fun PaymentListScreen(navController: NavController, viewModel: RanisaViewModel) 
                                                                 }
                                                                 IconButton(
                                                                     onClick = {
-                                                                        viewModel.deletePayment(p)
-                                                                        Toast.makeText(context, "Payment receipt deleted", Toast.LENGTH_SHORT).show()
+                                                                        com.example.util.BiometricHelper.runWithBiometric(
+                                                                            context = context,
+                                                                            title = "Ranisa Security",
+                                                                            subtitle = "Verify your fingerprint to continue.",
+                                                                            action = {
+                                                                                viewModel.deletePayment(p)
+                                                                                Toast.makeText(context, "Payment receipt deleted", Toast.LENGTH_SHORT).show()
+                                                                            }
+                                                                        )
                                                                     },
                                                                     modifier = Modifier.size(24.dp)
                                                                 ) {
@@ -7103,7 +7586,8 @@ fun SettingsScreen(navController: NavController, viewModel: RanisaViewModel) {
 
         // Preferences Section
         val sharedPrefs = remember(context) { context.getSharedPreferences("ranisa_prefs", android.content.Context.MODE_PRIVATE) }
-        var isGreetingEnabled by remember { mutableStateOf(sharedPrefs.getBoolean("login_greeting_enabled", true)) }
+        var isBiometricEnabled by remember { mutableStateOf(sharedPrefs.getBoolean("biometric_lock_enabled", false)) }
+        val activity = context as? androidx.fragment.app.FragmentActivity
 
         Card(
             modifier = Modifier.fillMaxWidth()
@@ -7111,22 +7595,60 @@ fun SettingsScreen(navController: NavController, viewModel: RanisaViewModel) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("System Preferences", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.height(12.dp))
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Login Greeting Voice", fontWeight = FontWeight.SemiBold)
-                        Text("Play warm female vocal welcome upon successful login", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Fingerprint Lock", fontWeight = FontWeight.SemiBold)
+                        Text("Require fingerprint or device PIN when opening the app and performing sensitive actions.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(
-                        checked = isGreetingEnabled,
+                        checked = isBiometricEnabled,
                         onCheckedChange = { isChecked ->
-                            isGreetingEnabled = isChecked
-                            sharedPrefs.edit().putBoolean("login_greeting_enabled", isChecked).apply()
-                            viewModel.logSettingsChange("Greeting Voice Toggle", "Enabled", isChecked.toString())
-                        }
+                            if (isChecked) {
+                                if (activity == null) {
+                                    Toast.makeText(context, "Error: Activity context not available", Toast.LENGTH_SHORT).show()
+                                    return@Switch
+                                }
+                                val status = com.example.util.BiometricHelper.getBiometricStatus(context)
+                                if (status == "NO_HARDWARE" || status == "HW_UNAVAILABLE") {
+                                    Toast.makeText(context, "This device does not support biometric authentication.", Toast.LENGTH_LONG).show()
+                                    return@Switch
+                                } else if (status == "NONE_ENROLLED") {
+                                    Toast.makeText(context, "No biometrics enrolled. Please set up fingerprint/face lock in device settings first.", Toast.LENGTH_LONG).show()
+                                    return@Switch
+                                } else if (status == "SUCCESS") {
+                                    com.example.util.BiometricHelper.authenticate(
+                                        activity = activity,
+                                        title = "Ranisa Security",
+                                        subtitle = "Verify your fingerprint to continue.",
+                                        onSuccess = {
+                                            isBiometricEnabled = true
+                                            sharedPrefs.edit().putBoolean("biometric_lock_enabled", true).apply()
+                                            viewModel.logSettingsChange("Biometric Security", "Disabled", "Enabled")
+                                            Toast.makeText(context, "Fingerprint Lock enabled successfully.", Toast.LENGTH_SHORT).show()
+                                        },
+                                        onError = { errorCode, errString ->
+                                            Toast.makeText(context, "Authentication failed: $errString", Toast.LENGTH_SHORT).show()
+                                        },
+                                        onFailed = {
+                                            Toast.makeText(context, "Authentication failed. Try again.", Toast.LENGTH_SHORT).show()
+                                        }
+                                    )
+                                } else {
+                                    Toast.makeText(context, "Biometric authentication is currently unavailable ($status).", Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                isBiometricEnabled = false
+                                sharedPrefs.edit().putBoolean("biometric_lock_enabled", false).apply()
+                                viewModel.logSettingsChange("Biometric Security", "Enabled", "Disabled")
+                                Toast.makeText(context, "Fingerprint Lock disabled.", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.testTag("biometric_lock_switch")
                     )
                 }
             }
@@ -7148,10 +7670,17 @@ fun SettingsScreen(navController: NavController, viewModel: RanisaViewModel) {
         // Action controls
         Button(
             onClick = {
-                viewModel.logExport()
-                Toast.makeText(context, "SQLite Master Database backed up to Firebase Cloud.", Toast.LENGTH_LONG).show()
+                com.example.util.BiometricHelper.runWithBiometric(
+                    context = context,
+                    title = "Ranisa Security",
+                    subtitle = "Verify your fingerprint to continue.",
+                    action = {
+                        viewModel.logExport()
+                        Toast.makeText(context, "SQLite Master Database backed up to Firebase Cloud.", Toast.LENGTH_LONG).show()
+                    }
+                )
             },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth().testTag("backup_button")
         ) {
             Icon(Icons.Default.CloudUpload, contentDescription = "Sync Cloud")
             Spacer(modifier = Modifier.width(8.dp))
@@ -7168,6 +7697,30 @@ fun SettingsScreen(navController: NavController, viewModel: RanisaViewModel) {
             Icon(Icons.Default.Refresh, contentDescription = "Clear cache")
             Spacer(modifier = Modifier.width(8.dp))
             Text("Clear Audit log cache")
+        }
+
+        OutlinedButton(
+            onClick = {
+                com.example.util.BiometricHelper.runWithBiometric(
+                    context = context,
+                    title = "Ranisa Security",
+                    subtitle = "Verify your fingerprint to continue.",
+                    action = {
+                        viewModel.resetAllLocalData(context) {
+                            Toast.makeText(context, "All local data has been reset.", Toast.LENGTH_LONG).show()
+                            navController.navigate("login") {
+                                popUpTo(0) { inclusive = true }
+                            }
+                        }
+                    }
+                )
+            },
+            modifier = Modifier.fillMaxWidth().testTag("reset_data_button"),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+        ) {
+            Icon(Icons.Default.DeleteForever, contentDescription = "Reset all data")
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Reset All Local Data")
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -7311,8 +7864,15 @@ fun SearchScreen(navController: NavController, viewModel: RanisaViewModel) {
                                     }
                                     IconButton(
                                         onClick = {
-                                            viewModel.deletePayment(p)
-                                            Toast.makeText(context, "Payment receipt deleted", Toast.LENGTH_SHORT).show()
+                                            com.example.util.BiometricHelper.runWithBiometric(
+                                                context = context,
+                                                title = "Ranisa Security",
+                                                subtitle = "Verify your fingerprint to continue.",
+                                                action = {
+                                                    viewModel.deletePayment(p)
+                                                    Toast.makeText(context, "Payment receipt deleted", Toast.LENGTH_SHORT).show()
+                                                }
+                                            )
                                         },
                                         modifier = Modifier.size(28.dp)
                                     ) {
@@ -7700,6 +8260,11 @@ fun BrokerLedgerScreen(
     var isSearchActive by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
 
+    var showDeleteLedgerDialog by remember { mutableStateOf(false) }
+    var ledgerToDeleteName by remember { mutableStateOf("") }
+    var showShareSheetForLedger by remember { mutableStateOf(false) }
+    var ledgerToShareName by remember { mutableStateOf("") }
+
     // State for the Quick Add Broker Master dialog
     var showAddBrokerDialog by remember { mutableStateOf(false) }
     var newBrokerName by remember { mutableStateOf("") }
@@ -7728,8 +8293,19 @@ fun BrokerLedgerScreen(
     }
 
     // Filter brokers for the listing screen
-    val filteredBrokers = remember(searchQuery, brokersList) {
+    val distinctBrokers = remember(bills, brokersList) {
         brokersList.filter { broker ->
+            val brokerBills = bills.filter {
+                (it.brokerId.isNotBlank() && it.brokerId == broker.brokerId) || 
+                (it.brokerId.isBlank() && it.brokerName.equals(broker.brokerName, ignoreCase = true))
+            }
+            val totalQtls = brokerBills.sumOf { it.quintals }
+            brokerBills.isNotEmpty() && totalQtls > 0.0
+        }
+    }
+
+    val filteredBrokers = remember(searchQuery, distinctBrokers) {
+        distinctBrokers.filter { broker ->
             broker.brokerName.contains(searchQuery, ignoreCase = true) ||
             broker.mobile.contains(searchQuery, ignoreCase = true)
         }
@@ -7796,9 +8372,32 @@ fun BrokerLedgerScreen(
 
                     Text("Brokers Master List", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp), fontSize = 13.sp)
                     
-                    if (filteredBrokers.isEmpty()) {
+                    if (distinctBrokers.isEmpty()) {
                         Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                            Text("No brokers found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                                modifier = Modifier.padding(16.dp)
+                            ) {
+                                Text("📄", fontSize = 48.sp, modifier = Modifier.padding(bottom = 12.dp))
+                                Text(
+                                    text = "No Ledger Records Found",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Create your first bill to see ledger entries here.",
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    } else if (filteredBrokers.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                            Text("No matching brokers found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     } else {
                         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
@@ -7824,14 +8423,29 @@ fun BrokerLedgerScreen(
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Column {
+                                            Column(modifier = Modifier.weight(1f)) {
                                                 Text(broker.brokerName, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.White)
                                                 Text("${brokerBills.size} Registered Bills", fontSize = 12.sp, color = Color(0xFF8C8797))
                                             }
-                                            Column(horizontalAlignment = Alignment.End) {
+                                            Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(end = 8.dp)) {
                                                 Text("Total Qtls", fontSize = 11.sp, color = Color(0xFF8C8797))
                                                 Text("${String.format("%.2f", totalQtls)} Qtls", fontWeight = FontWeight.Bold, color = Color(0xFFBB86FC))
                                             }
+                                            
+                                            LedgerOverflowMenu(
+                                                itemId = broker.brokerId.ifBlank { broker.brokerName },
+                                                onEdit = {
+                                                    navController.navigate("broker_master_list")
+                                                },
+                                                onShare = {
+                                                    ledgerToShareName = broker.brokerName
+                                                    showShareSheetForLedger = true
+                                                },
+                                                onDeleteLedger = {
+                                                    ledgerToDeleteName = broker.brokerName
+                                                    showDeleteLedgerDialog = true
+                                                }
+                                            )
                                         }
                                     }
                                 }
@@ -7939,11 +8553,35 @@ fun BrokerLedgerScreen(
                             }
                         }
                         if (!isRegistrySearchActive) {
-                            IconButton(
-                                onClick = { isRegistrySearchActive = true },
-                                modifier = Modifier.testTag("broker_registry_search_button")
-                            ) {
-                                Icon(Icons.Default.Search, contentDescription = "Search bills", tint = Color.White)
+                            var showShareSheet by remember { mutableStateOf(false) }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedButton(
+                                    onClick = { showShareSheet = true },
+                                    shape = RoundedCornerShape(24.dp),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                                    modifier = Modifier.padding(end = 4.dp).testTag("share_full_broker_ledger_button")
+                                ) {
+                                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Share Full Ledger", fontSize = 11.sp)
+                                }
+                                IconButton(
+                                    onClick = { isRegistrySearchActive = true },
+                                    modifier = Modifier.testTag("broker_registry_search_button")
+                                ) {
+                                    Icon(Icons.Default.Search, contentDescription = "Search bills", tint = Color.White)
+                                }
+                            }
+
+                            if (showShareSheet) {
+                                FullLedgerShareSheet(
+                                    ledgerName = currentBroker.brokerName,
+                                    ledgerType = "broker",
+                                    bills = brokerBills,
+                                    payments = payments,
+                                    onDismissRequest = { showShareSheet = false }
+                                )
                             }
                         }
                     }
@@ -8224,10 +8862,17 @@ fun BrokerLedgerScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.deleteBill(billToDelete!!)
-                        showDeleteBillDialog = false
-                        billToDelete = null
-                        Toast.makeText(context, "Bill deleted successfully", Toast.LENGTH_SHORT).show()
+                        com.example.util.BiometricHelper.runWithBiometric(
+                            context = context,
+                            title = "Ranisa Security",
+                            subtitle = "Verify your fingerprint to continue.",
+                            action = {
+                                viewModel.deleteBill(billToDelete!!)
+                                showDeleteBillDialog = false
+                                billToDelete = null
+                                Toast.makeText(context, "Bill deleted successfully", Toast.LENGTH_SHORT).show()
+                            }
+                        )
                     },
                     modifier = Modifier.testTag("confirm_delete_broker_bill_button")
                 ) {
@@ -8296,6 +8941,65 @@ fun BrokerLedgerScreen(
                         }
                     )
                 }
+            }
+        )
+    }
+
+    if (showDeleteLedgerDialog && ledgerToDeleteName.isNotBlank()) {
+        AlertDialog(
+            onDismissRequest = { showDeleteLedgerDialog = false },
+            title = { Text("Delete all ledger transactions for this party?") },
+            text = { Text("This action will remove only the ledger records.\nThe Master List will remain unchanged.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        com.example.util.BiometricHelper.runWithBiometric(
+                            context = context,
+                            title = "Ranisa Security",
+                            subtitle = "Verify your fingerprint to continue.",
+                            action = {
+                                viewModel.deleteBrokerLedger(
+                                    brokerName = ledgerToDeleteName,
+                                    onSuccess = {
+                                        showDeleteLedgerDialog = false
+                                        Toast.makeText(context, "Ledger transactions deleted successfully", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onError = { error ->
+                                        Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            }
+                        )
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteLedgerDialog = false }) {
+                    Text("Cancel")
+                }
+            },
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    if (showShareSheetForLedger && ledgerToShareName.isNotBlank()) {
+        val filteredBillsForOwner = remember(bills, ledgerToShareName) {
+            bills.filter { 
+                (it.brokerId.isBlank() && it.brokerName.equals(ledgerToShareName, ignoreCase = true)) ||
+                (it.brokerId.isNotBlank() && brokersList.find { b -> b.brokerId == it.brokerId }?.brokerName?.equals(ledgerToShareName, ignoreCase = true) == true)
+            }
+        }
+        FullLedgerShareSheet(
+            ledgerName = ledgerToShareName,
+            ledgerType = "broker",
+            bills = filteredBillsForOwner,
+            payments = payments,
+            onDismissRequest = {
+                showShareSheetForLedger = false
+                ledgerToShareName = ""
             }
         )
     }
@@ -8369,6 +9073,178 @@ fun BrokerFormDialog(
                         Text("Save")
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun LedgerOverflowMenu(
+    itemId: String,
+    onEdit: () -> Unit,
+    onShare: () -> Unit,
+    onDeleteLedger: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    Box(modifier = modifier.padding(start = 8.dp)) {
+        IconButton(
+            onClick = { menuExpanded = true },
+            modifier = Modifier.testTag("ledger_card_menu_$itemId")
+        ) {
+            Icon(
+                imageVector = Icons.Default.MoreVert,
+                contentDescription = "More options",
+                tint = Color.Gray
+            )
+        }
+        DropdownMenu(
+            expanded = menuExpanded,
+            onDismissRequest = { menuExpanded = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("✏️ Edit") },
+                onClick = {
+                    menuExpanded = false
+                    onEdit()
+                },
+                modifier = Modifier.testTag("ledger_card_edit_$itemId")
+            )
+            DropdownMenuItem(
+                text = { Text("📤 Share Ledger") },
+                onClick = {
+                    menuExpanded = false
+                    onShare()
+                },
+                modifier = Modifier.testTag("ledger_card_share_$itemId")
+            )
+            DropdownMenuItem(
+                text = { Text("🗑 Delete Ledger") },
+                onClick = {
+                    menuExpanded = false
+                    onDeleteLedger()
+                },
+                modifier = Modifier.testTag("ledger_card_delete_ledger_$itemId")
+            )
+        }
+    }
+}
+
+@Composable
+fun BiometricLockScreen(
+    onUnlockSuccess: () -> Unit,
+    context: android.content.Context
+) {
+    val activity = context as? androidx.fragment.app.FragmentActivity
+
+    // Automatically trigger biometric authentication when first launched
+    LaunchedEffect(Unit) {
+        if (activity != null) {
+            com.example.util.BiometricHelper.authenticate(
+                activity = activity,
+                title = "Ranisa Security",
+                subtitle = "Verify your fingerprint to continue.",
+                onSuccess = {
+                    onUnlockSuccess()
+                },
+                onError = { _, _ ->
+                    // Fallback to manual trigger button if error/cancel
+                },
+                onFailed = {
+                    // Fail state: retry is available via button
+                }
+            )
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF13101E)) // Dark majestic background
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(110.dp)
+                    .background(Color(0xFF322659).copy(alpha = 0.2f), shape = CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Fingerprint,
+                    contentDescription = "Ranisa Lock",
+                    tint = Color(0xFFD0BCFF),
+                    modifier = Modifier.size(70.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Text(
+                text = "Ranisa Security",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "हिसाब आपके साथ\nVerify your fingerprint or credentials to unlock.",
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                color = Color.White.copy(alpha = 0.7f),
+                modifier = Modifier.padding(horizontal = 24.dp)
+            )
+
+            Spacer(modifier = Modifier.height(48.dp))
+
+            Button(
+                onClick = {
+                    if (activity != null) {
+                        com.example.util.BiometricHelper.authenticate(
+                            activity = activity,
+                            title = "Ranisa Security",
+                            subtitle = "Verify your fingerprint to continue.",
+                            onSuccess = {
+                                onUnlockSuccess()
+                            },
+                            onError = { _, errString ->
+                                Toast.makeText(context, "Verification failed: $errString", Toast.LENGTH_SHORT).show()
+                            },
+                            onFailed = {
+                                Toast.makeText(context, "Verification failed. Please try again.", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    } else {
+                        Toast.makeText(context, "Error: Biometric context not available", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF322659),
+                    contentColor = Color.White
+                ),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .testTag("biometric_unlock_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.LockOpen,
+                    contentDescription = "Unlock App"
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Unlock App",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
             }
         }
     }

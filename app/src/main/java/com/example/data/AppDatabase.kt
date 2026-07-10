@@ -119,7 +119,8 @@ data class ContractBill(
     val remark1: String = "",
     val remark2: String = "",
     val brokerName: String = "",
-    val brokerId: String = ""
+    val brokerId: String = "",
+    val eb: String = ""
 )
 
 data class ContractItem(
@@ -382,7 +383,7 @@ interface AppDao {
 
 @Database(
     entities = [User::class, Firm::class, Seller::class, Buyer::class, ContractBill::class, Payment::class, AuditLog::class, Broker::class],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

@@ -692,4 +692,573 @@ object PdfGenerator {
         
         return "${result.trim()} Rupees Only"
     }
+
+    fun generateFullLedgerPdf(
+        context: Context,
+        ledgerName: String,
+        ledgerType: String,
+        firmName: String,
+        bills: List<ContractBill>,
+        payments: List<Payment>,
+        dateRangeText: String,
+        selectedColumns: List<String>,
+        orientation: String, // "Portrait" or "Landscape"
+        paperSize: String, // "A4" or "Letter"
+        fontSize: String, // "Small", "Medium", "Large"
+        repeatHeader: Boolean,
+        showSummary: Boolean,
+        showPageNumbers: Boolean,
+        autoFit: Boolean
+    ): File? {
+        try {
+            // 1. Determine orientation and dimensions
+            // Automatically switch to Landscape if there are more than 7 columns selected
+            var isPortrait = orientation.equals("Portrait", ignoreCase = true)
+            if (selectedColumns.size > 7) {
+                isPortrait = false
+            }
+            val isA4 = paperSize.equals("A4", ignoreCase = true)
+            
+            val pageWidth = if (isA4) {
+                if (isPortrait) 595 else 842
+            } else {
+                if (isPortrait) 612 else 792
+            }
+            
+            val pageHeight = if (isA4) {
+                if (isPortrait) 842 else 595
+            } else {
+                if (isPortrait) 792 else 612
+            }
+            
+            // Determine starting font scales
+            val fontScale = when (fontSize.lowercase()) {
+                "small" -> 0.8f
+                "large" -> 1.2f
+                else -> 1.0f // medium
+            }
+            
+            val titleSize = 16f * fontScale
+            val labelSize = 10f * fontScale
+            val textDetailSize = 9f * fontScale
+            
+            val leftMargin = 30f
+            val rightMargin = 30f
+            val topMargin = 40f
+            val bottomMargin = 40f
+            val availableWidth = pageWidth - leftMargin - rightMargin
+            
+            val pdfDocument = PdfDocument()
+            val paint = Paint()
+            
+            // Col weights based on standard columns
+            val colWeights = mapOf(
+                "Date" to 1.0f,
+                "Bill No." to 0.8f,
+                "Party Name" to 1.8f,
+                "Place" to 1.0f,
+                "Brand" to 1.0f,
+                "Qtls" to 0.8f,
+                "Rate" to 0.8f,
+                "Bill Amount" to 1.1f,
+                "Received Amount" to 1.1f,
+                "Balance Amount" to 1.1f,
+                "Status" to 0.9f,
+                "EB" to 0.8f,
+                "Lorry Freight" to 0.9f,
+                "Credit Days" to 0.7f,
+                "Bank / DD Details" to 1.5f,
+                "Remarks" to 1.5f
+            )
+
+            val colMinWidths = mapOf(
+                "Date" to 50f,
+                "Bill No." to 40f,
+                "Party Name" to 90f,
+                "Place" to 50f,
+                "Brand" to 50f,
+                "Qtls" to 40f,
+                "Rate" to 40f,
+                "Bill Amount" to 55f,
+                "Received Amount" to 55f,
+                "Balance Amount" to 55f,
+                "Status" to 45f,
+                "EB" to 40f,
+                "Lorry Freight" to 45f,
+                "Credit Days" to 35f,
+                "Bank / DD Details" to 75f,
+                "Remarks" to 75f
+            )
+
+            // Dynamic font sizing based on column space
+            var currentScale = fontScale
+            var tempTableRowSize = 8f * currentScale
+            var tempTableHeaderSize = 9f * currentScale
+
+            fun getMinWidthForCol(col: String, rSize: Float): Float {
+                val baseMin = colMinWidths[col] ?: 50f
+                return baseMin * (rSize / 8f)
+            }
+
+            var totalMinWidth = selectedColumns.sumOf { getMinWidthForCol(it, tempTableRowSize).toDouble() }.toFloat()
+
+            // If columns exceed the page width, reduce the font size down to minimum of 7pt (7f)
+            while (totalMinWidth > availableWidth && tempTableRowSize > 7f) {
+                tempTableRowSize -= 0.2f
+                tempTableHeaderSize = tempTableRowSize + 1f
+                totalMinWidth = selectedColumns.sumOf { getMinWidthForCol(it, tempTableRowSize).toDouble() }.toFloat()
+            }
+
+            if (tempTableRowSize < 7f) {
+                tempTableRowSize = 7f
+                tempTableHeaderSize = 8f
+            }
+
+            val tableRowSize = tempTableRowSize
+            val tableHeaderSize = tempTableHeaderSize
+            val rowHeightFactor = 1.3f
+            val baseRowHeight = 16f * (tableRowSize / 8f) * rowHeightFactor
+            
+            // Calculate widths based on remaining/available width
+            val minWidths = selectedColumns.map { getMinWidthForCol(it, tableRowSize) }
+            val sumMinWidths = minWidths.sum()
+
+            val colWidths = if (sumMinWidths >= availableWidth) {
+                // Scale down minimum widths to fit exactly
+                selectedColumns.mapIndexed { idx, _ ->
+                    (availableWidth * minWidths[idx]) / sumMinWidths
+                }
+            } else {
+                // Distribute extra width proportionally based on weights
+                val extraWidth = availableWidth - sumMinWidths
+                val selectedWeights = selectedColumns.map { colWeights[it] ?: 1.0f }
+                val sumWeights = selectedWeights.sum()
+                selectedColumns.mapIndexed { idx, col ->
+                    val minW = minWidths[idx]
+                    val weight = selectedWeights[idx]
+                    minW + (extraWidth * weight) / sumWeights
+                }
+            }
+            
+            // Prepare pages and draw
+            var pageNum = 1
+            var pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create()
+            var page = pdfDocument.startPage(pageInfo)
+            var canvas = page.canvas
+            
+            // Helper function to draw background frame/borders (professional style)
+            fun drawBorders(c: Canvas) {
+                paint.color = Color.parseColor("#4A3B60") // Purple accent
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 1f
+                c.drawRect(leftMargin - 10f, topMargin - 10f, pageWidth - rightMargin + 10f, pageHeight - bottomMargin + 10f, paint)
+            }
+            
+            // Helper to draw Footer
+            fun drawFooter(c: Canvas, pNum: Int) {
+                paint.style = Paint.Style.FILL
+                paint.color = Color.GRAY
+                paint.textSize = 8f
+                paint.isFakeBoldText = false
+                
+                val footerText = "Generated by Ranisa"
+                c.drawText(footerText, leftMargin, pageHeight - bottomMargin + 25f, paint)
+                
+                if (showPageNumbers) {
+                    val pageText = "Page $pNum"
+                    c.drawText(pageText, pageWidth - rightMargin - paint.measureText(pageText), pageHeight - bottomMargin + 25f, paint)
+                }
+            }
+            
+            // Helper to wrap text with safe padding
+            fun wrapText(text: String, width: Float, rowPaint: Paint): List<String> {
+                val words = text.split(" ")
+                val lines = mutableListOf<String>()
+                var currentLine = ""
+                val padding = 10f
+                val availableCellWidth = width - padding
+                for (word in words) {
+                    val testLine = if (currentLine.isEmpty()) word else "$currentLine $word"
+                    val testWidth = rowPaint.measureText(testLine)
+                    if (testWidth <= availableCellWidth) {
+                        currentLine = testLine
+                    } else {
+                        if (currentLine.isNotEmpty()) {
+                            lines.add(currentLine)
+                        }
+                        currentLine = word
+                        while (rowPaint.measureText(currentLine) > availableCellWidth && currentLine.length > 1) {
+                            var i = currentLine.length
+                            while (i > 0 && rowPaint.measureText(currentLine.substring(0, i)) > availableCellWidth) {
+                                i--
+                            }
+                            if (i == 0) i = 1
+                            lines.add(currentLine.substring(0, i))
+                            currentLine = currentLine.substring(i)
+                        }
+                    }
+                }
+                if (currentLine.isNotEmpty()) {
+                    lines.add(currentLine)
+                }
+                return lines
+            }
+            
+            var y = topMargin
+            
+            // Draw Main Header
+            fun drawHeaderBlock(c: Canvas) {
+                paint.color = Color.parseColor("#2E1A47") // Deep dark purple title
+                paint.style = Paint.Style.FILL
+                paint.textSize = titleSize
+                paint.isFakeBoldText = true
+                c.drawText(firmName.uppercase(), leftMargin, y + 15f, paint)
+                
+                paint.color = Color.DKGRAY
+                paint.textSize = labelSize
+                paint.isFakeBoldText = false
+                c.drawText("CANVASSING AGENT", leftMargin, y + 28f, paint)
+                
+                // Top-right info
+                paint.color = Color.BLACK
+                paint.textSize = textDetailSize
+                paint.isFakeBoldText = true
+                val infoX = pageWidth - rightMargin - 220f
+                c.drawText("Ledger Name: $ledgerName", infoX, y + 12f, paint)
+                paint.isFakeBoldText = false
+                c.drawText("Type: ${ledgerType.uppercase()} LEDGER", infoX, y + 24f, paint)
+                c.drawText("Date Range: $dateRangeText", infoX, y + 36f, paint)
+                
+                val sdfDateTime = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                c.drawText("Generated: ${sdfDateTime.format(java.util.Date())}", infoX, y + 48f, paint)
+                
+                y += 60f
+                paint.strokeWidth = 1f
+                paint.color = Color.parseColor("#4A3B60")
+                c.drawLine(leftMargin, y, pageWidth - rightMargin, y, paint)
+                y += 10f
+            }
+            
+            // Draw Mini Header (for subsequent pages)
+            fun drawMiniHeader(c: Canvas) {
+                paint.color = Color.parseColor("#2E1A47")
+                paint.style = Paint.Style.FILL
+                paint.textSize = labelSize
+                paint.isFakeBoldText = true
+                c.drawText("$firmName - $ledgerName (${ledgerType.uppercase()})", leftMargin, y + 12f, paint)
+                
+                paint.color = Color.DKGRAY
+                paint.textSize = textDetailSize - 1f
+                paint.isFakeBoldText = false
+                val infoText = "Date Range: $dateRangeText"
+                c.drawText(infoText, pageWidth - rightMargin - paint.measureText(infoText), y + 12f, paint)
+                
+                y += 20f
+                paint.strokeWidth = 0.5f
+                paint.color = Color.parseColor("#4A3B60")
+                c.drawLine(leftMargin, y, pageWidth - rightMargin, y, paint)
+                y += 8f
+            }
+            
+            // Draw Summary Box
+            fun drawSummaryBox(c: Canvas) {
+                val boxHeight = 45f
+                paint.color = Color.parseColor("#F4EFFF") // very light purple
+                paint.style = Paint.Style.FILL
+                c.drawRoundRect(leftMargin, y, pageWidth - rightMargin, y + boxHeight, 6f, 6f, paint)
+                
+                paint.color = Color.parseColor("#4A3B60")
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 0.8f
+                c.drawRoundRect(leftMargin, y, pageWidth - rightMargin, y + boxHeight, 6f, 6f, paint)
+                
+                // Compute summary values
+                val totalBillsCount = bills.size
+                val totalQtlsSum = bills.sumOf { it.quintals }
+                val totalBillAmtSum = bills.sumOf { it.billAmount }
+                
+                val receivedList = bills.map { b ->
+                    payments.filter { p -> p.billNo.trim().equals(b.billNumber.trim(), ignoreCase = true) }.sumOf { it.paymentAmount }
+                }
+                val totalReceivedSum = receivedList.sum()
+                val totalBalanceSum = bills.sumOf { it.billAmount } - totalReceivedSum - bills.map { b ->
+                    payments.filter { p -> p.billNo.trim().equals(b.billNumber.trim(), ignoreCase = true) }.sumOf { it.discountAmount + it.commissionAmount + (it.remarks1.toDoubleOrNull() ?: 0.0) }
+                }.sum()
+                
+                // Draw columns (5 columns)
+                val labels = listOf("Total Bills", "Total Qtls", "Total Bill Amt", "Total Received", "Total Balance")
+                val values = listOf(
+                    "$totalBillsCount",
+                    "${String.format("%.2f", totalQtlsSum)} Q",
+                    "₹${String.format("%.1f", totalBillAmtSum)}",
+                    "₹${String.format("%.1f", totalReceivedSum)}",
+                    "₹${String.format("%.1f", totalBalanceSum)}"
+                )
+                
+                val colWidthSum = availableWidth / 5f
+                for (i in 0 until 5) {
+                    val cx = leftMargin + i * colWidthSum
+                    paint.style = Paint.Style.FILL
+                    paint.isFakeBoldText = true
+                    paint.color = Color.parseColor("#4A3B60")
+                    paint.textSize = tableHeaderSize - 1.5f
+                    val lbl = labels[i]
+                    c.drawText(lbl, cx + (colWidthSum - paint.measureText(lbl)) / 2f, y + 16f, paint)
+                    
+                    paint.textSize = tableHeaderSize + 0.5f
+                    paint.color = Color.BLACK
+                    val valStr = values[i]
+                    c.drawText(valStr, cx + (colWidthSum - paint.measureText(valStr)) / 2f, y + 33f, paint)
+                    
+                    // Draw separator lines inside summary box
+                    if (i > 0) {
+                        paint.color = Color.parseColor("#D0C4DF")
+                        paint.strokeWidth = 0.5f
+                        c.drawLine(cx, y + 5f, cx, y + boxHeight - 5f, paint)
+                    }
+                }
+                
+                y += boxHeight + 15f
+            }
+            
+            // Helper to draw thick table outer borders on each completed page
+            fun drawTableOuterBorder(c: Canvas, startY: Float, endY: Float) {
+                paint.color = Color.parseColor("#322659") // Dark purple outer border matching the header background
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 1.5f
+                c.drawRect(leftMargin, startY, pageWidth - rightMargin, endY, paint)
+            }
+            
+            // Draw Table Header Row
+            fun drawTableHeader(c: Canvas) {
+                // Background
+                paint.color = Color.parseColor("#322659") // Dark purple header background
+                paint.style = Paint.Style.FILL
+                c.drawRect(leftMargin, y, pageWidth - rightMargin, y + baseRowHeight, paint)
+                
+                paint.color = Color.WHITE
+                paint.textSize = tableHeaderSize
+                paint.isFakeBoldText = true
+                val headerTextY = y + (baseRowHeight + tableHeaderSize) / 2f - 1.5f
+                
+                var currentX = leftMargin
+                for (i in selectedColumns.indices) {
+                    val colName = selectedColumns[i]
+                    val w = colWidths[i]
+                    val txtWidth = paint.measureText(colName)
+                    c.drawText(colName, currentX + (w - txtWidth) / 2f, headerTextY, paint)
+                    currentX += w
+                }
+                
+                // Draw bottom border and vertical divider lines for header
+                paint.color = Color.parseColor("#D0C4DF")
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 0.8f
+                currentX = leftMargin
+                for (i in selectedColumns.indices) {
+                    val w = colWidths[i]
+                    if (i > 0) {
+                        c.drawLine(currentX, y, currentX, y + baseRowHeight, paint)
+                    }
+                    currentX += w
+                }
+                c.drawLine(leftMargin, y + baseRowHeight, pageWidth - rightMargin, y + baseRowHeight, paint)
+                
+                y += baseRowHeight
+            }
+            
+            // Draw page borders and footer on the initial page
+            drawBorders(canvas)
+            drawHeaderBlock(canvas)
+            
+            if (showSummary) {
+                drawSummaryBox(canvas)
+            }
+            
+            var tablePageStartY = y
+            drawTableHeader(canvas)
+            
+            // Draw Rows
+            for (index in bills.indices) {
+                val bill = bills[index]
+                
+                // Gather values for each column
+                val matchingPayments = payments.filter { p -> p.billNo.trim().equals(bill.billNumber.trim(), ignoreCase = true) }
+                val liveReceived = matchingPayments.sumOf { it.paymentAmount }
+                val liveDiscount = matchingPayments.sumOf { it.discountAmount }
+                val liveCommission = matchingPayments.sumOf { it.commissionAmount }
+                val liveRemarkAmt = matchingPayments.sumOf { it.remarks1.toDoubleOrNull() ?: 0.0 }
+                val liveBalance = bill.billAmount - liveReceived - liveDiscount - liveCommission - liveRemarkAmt
+                
+                val paymentStatus = when {
+                    liveBalance <= 0.01 -> "Fully Paid"
+                    liveReceived <= 0.0 -> "Pending"
+                    else -> "Partial Paid"
+                }
+                
+                val partyNameValue = when (ledgerType.lowercase()) {
+                    "seller" -> bill.buyerName
+                    "buyer" -> bill.sellerName
+                    else -> "${bill.sellerName} / ${bill.buyerName}"
+                }
+                
+                val remarksValue = if (bill.remarks.isNotBlank()) bill.remarks else if (bill.remark2.isNotBlank()) bill.remark2 else "-"
+                
+                val bankDetailsValue = if (matchingPayments.isNotEmpty()) {
+                    matchingPayments.joinToString(", ") { p ->
+                        val mode = p.paymentMode.ifBlank { "Paid" }
+                        val ref = p.referenceNumber
+                        if (ref.isNotBlank()) "$mode($ref)" else mode
+                    }
+                } else {
+                    "-"
+                }
+                
+                val colValues = selectedColumns.map { col ->
+                    when (col) {
+                        "Date" -> formatDateToDdMmYyyy(bill.date)
+                        "Bill No." -> bill.billNumber
+                        "Party Name" -> partyNameValue
+                        "Place" -> bill.place.ifBlank { "-" }
+                        "Brand" -> bill.brand.ifBlank { "-" }
+                        "Qtls" -> String.format("%.2f", bill.quintals)
+                        "Rate" -> "₹${String.format("%.1f", bill.rate)}"
+                        "Bill Amount" -> "₹${String.format("%.1f", bill.billAmount)}"
+                        "Received Amount" -> "₹${String.format("%.1f", liveReceived)}"
+                        "Balance Amount" -> "₹${String.format("%.1f", liveBalance)}"
+                        "Status" -> paymentStatus
+                        "EB" -> bill.eb.ifBlank { "-" }
+                        "Lorry Freight" -> "₹${String.format("%.1f", bill.lorryFreight)}"
+                        "Credit Days" -> if (bill.creditDays > 0) bill.creditDays.toString() else "N/A"
+                        "Bank / DD Details" -> bankDetailsValue
+                        "Remarks" -> remarksValue
+                        else -> "-"
+                    }
+                }
+                
+                // Wrap cells
+                paint.textSize = tableRowSize
+                paint.isFakeBoldText = false
+                val cellLines = colValues.mapIndexed { idx, value ->
+                    wrapText(value, colWidths[idx], paint)
+                }
+                val maxLinesInRow = cellLines.maxOf { it.size }
+                val neededRowHeight = maxLinesInRow * (tableRowSize + 3f) + 8f
+                
+                // Check page break
+                if (y + neededRowHeight > pageHeight - bottomMargin) {
+                    // Draw outer border for completed table on current page
+                    drawTableOuterBorder(canvas, tablePageStartY, y)
+                    
+                    drawFooter(canvas, pageNum)
+                    pdfDocument.finishPage(page)
+                    
+                    pageNum++
+                    pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create()
+                    page = pdfDocument.startPage(pageInfo)
+                    canvas = page.canvas
+                    y = topMargin
+                    
+                    drawBorders(canvas)
+                    if (repeatHeader) {
+                        drawMiniHeader(canvas)
+                    }
+                    tablePageStartY = y
+                    drawTableHeader(canvas)
+                }
+                
+                // Draw Row Background (Alternate row colors)
+                if (index % 2 == 1) {
+                    paint.color = Color.parseColor("#F4EFFF") // light purple
+                    paint.style = Paint.Style.FILL
+                    canvas.drawRect(leftMargin, y, pageWidth - rightMargin, y + neededRowHeight, paint)
+                }
+                
+                // Draw Cells
+                paint.style = Paint.Style.FILL
+                var currentX = leftMargin
+                for (cIdx in selectedColumns.indices) {
+                    val lines = cellLines[cIdx]
+                    val colW = colWidths[cIdx]
+                    
+                    // Column colors styling
+                    val colName = selectedColumns[cIdx]
+                    if (colName == "Balance Amount" && liveBalance > 0.0) {
+                        paint.color = Color.parseColor("#D32F2F") // red for outstanding
+                    } else if (colName == "Status") {
+                        paint.color = when (paymentStatus) {
+                            "Fully Paid" -> Color.parseColor("#388E3C") // green
+                            "Pending" -> Color.parseColor("#D32F2F") // red
+                            else -> Color.parseColor("#F57C00") // orange
+                        }
+                        paint.isFakeBoldText = true
+                    } else {
+                        paint.color = Color.BLACK
+                        paint.isFakeBoldText = false
+                    }
+                    
+                    paint.textSize = tableRowSize
+                    
+                    // Vertically center text lines in row
+                    val totalTextHeight = lines.size * (tableRowSize + 3f) - 3f
+                    val cellYOffset = (neededRowHeight - totalTextHeight) / 2f
+                    val cellYStart = y + cellYOffset + tableRowSize - 1f
+                    
+                    for (lineNum in lines.indices) {
+                        val lineTxt = lines[lineNum]
+                        val txtW = paint.measureText(lineTxt)
+                        // center horizontally in cell if it's numeric/status
+                        val drawX = if (colName in listOf("Date", "Bill No.", "Qtls", "Rate", "Bill Amount", "Received Amount", "Balance Amount", "Status", "Credit Days")) {
+                            currentX + (colW - txtW) / 2f
+                        } else {
+                            currentX + 5f // Left aligned with padding
+                        }
+                        canvas.drawText(lineTxt, drawX, cellYStart + lineNum * (tableRowSize + 3f), paint)
+                    }
+                    
+                    currentX += colW
+                }
+                
+                // Draw borders for this row (Grid layout)
+                paint.color = Color.parseColor("#D0C4DF")
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 0.8f
+                
+                // Vertical dividers
+                currentX = leftMargin
+                for (cIdx in selectedColumns.indices) {
+                    val colW = colWidths[cIdx]
+                    if (cIdx > 0) {
+                        canvas.drawLine(currentX, y, currentX, y + neededRowHeight, paint)
+                    }
+                    currentX += colW
+                }
+                
+                // Horizontal bottom row divider line
+                canvas.drawLine(leftMargin, y + neededRowHeight, pageWidth - rightMargin, y + neededRowHeight, paint)
+                
+                y += neededRowHeight
+            }
+            
+            // Draw outer border for final table
+            drawTableOuterBorder(canvas, tablePageStartY, y)
+            
+            // Draw Footer on last page
+            drawFooter(canvas, pageNum)
+            pdfDocument.finishPage(page)
+            
+            val filename = "Full_Ledger_${ledgerName.replace(" ", "_")}_${System.currentTimeMillis()}.pdf"
+            val file = File(context.cacheDir, filename)
+            val fos = FileOutputStream(file)
+            pdfDocument.writeTo(fos)
+            pdfDocument.close()
+            fos.close()
+            return file
+            
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
+        }
+    }
 }
+

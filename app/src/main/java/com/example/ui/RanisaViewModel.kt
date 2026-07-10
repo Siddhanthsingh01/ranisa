@@ -1187,6 +1187,109 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
         }
     }
 
+    fun deleteSellerLedger(sellerName: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val sellerBills = allBills.value.filter { it.sellerName == sellerName }
+                sellerBills.forEach { bill ->
+                    val associatedPayments = repository.deleteContractBill(bill)
+                    FirebaseService.deleteBillFromFirebase(
+                        getApplication(),
+                        bill,
+                        activeUser.value?.username ?: "Admin",
+                        activeUser.value?.role ?: "Admin"
+                    )
+                    associatedPayments.forEach { payment ->
+                        FirebaseService.deletePaymentFromFirebase(
+                            getApplication(),
+                            payment
+                        )
+                    }
+                }
+                onSuccess()
+            } catch (e: Exception) {
+                onError(e.message ?: "Error deleting seller ledger")
+            }
+        }
+    }
+
+    fun deleteBuyerLedger(buyerName: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val buyerBills = allBills.value.filter { it.buyerName == buyerName }
+                buyerBills.forEach { bill ->
+                    val associatedPayments = repository.deleteContractBill(bill)
+                    FirebaseService.deleteBillFromFirebase(
+                        getApplication(),
+                        bill,
+                        activeUser.value?.username ?: "Admin",
+                        activeUser.value?.role ?: "Admin"
+                    )
+                    associatedPayments.forEach { payment ->
+                        FirebaseService.deletePaymentFromFirebase(
+                            getApplication(),
+                            payment
+                        )
+                    }
+                }
+                onSuccess()
+            } catch (e: Exception) {
+                onError(e.message ?: "Error deleting buyer ledger")
+            }
+        }
+    }
+
+    fun deleteBrokerLedger(brokerName: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val brokerBills = allBills.value.filter { it.brokerName == brokerName }
+                brokerBills.forEach { bill ->
+                    val associatedPayments = repository.deleteContractBill(bill)
+                    FirebaseService.deleteBillFromFirebase(
+                        getApplication(),
+                        bill,
+                        activeUser.value?.username ?: "Admin",
+                        activeUser.value?.role ?: "Admin"
+                    )
+                    associatedPayments.forEach { payment ->
+                        FirebaseService.deletePaymentFromFirebase(
+                            getApplication(),
+                            payment
+                        )
+                    }
+                }
+                onSuccess()
+            } catch (e: Exception) {
+                onError(e.message ?: "Error deleting broker ledger")
+            }
+        }
+    }
+
+    fun resetAllLocalData(context: android.content.Context, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            try {
+                // Clear Room SQLite database
+                val database = AppDatabase.getDatabase(context)
+                database.clearAllTables()
+                
+                // Clear remember me preferences
+                val sharedPrefs = context.getSharedPreferences("ranisa_prefs", android.content.Context.MODE_PRIVATE)
+                sharedPrefs.edit()
+                    .putBoolean("remember_me", false)
+                    .remove("saved_username")
+                    .remove("saved_role")
+                    .apply()
+                
+                // Logout user locally
+                logoutUser()
+                
+                onSuccess()
+            } catch (e: Exception) {
+                Log.e("RanisaViewModel", "Error resetting local data: ${e.message}")
+            }
+        }
+    }
+
     // Custom Factory
     class Factory(private val application: Application) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {

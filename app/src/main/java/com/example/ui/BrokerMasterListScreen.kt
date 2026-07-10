@@ -59,6 +59,10 @@ fun BrokerMasterListScreen(
     var selectedBrokerForDelete by remember { mutableStateOf<FirebaseBroker?>(null) }
     var showMoreMenu by remember { mutableStateOf(false) }
     
+    // Share sheet states
+    var showShareSheet by remember { mutableStateOf(false) }
+    var ledgerOwnerForShare by remember { mutableStateOf<String?>(null) }
+    
     // Form States
     var formName by remember { mutableStateOf("") }
     val formMobiles = remember { mutableStateListOf<String>() }
@@ -67,6 +71,7 @@ fun BrokerMasterListScreen(
     // Brokers from database
     val brokersList by viewModel.rtdbFullBrokers.collectAsState()
     val bills by viewModel.allBills.collectAsState()
+    val payments by viewModel.allPayments.collectAsState()
     
     // Filtered Brokers
     val filteredBrokers = remember(searchQuery, brokersList) {
@@ -283,7 +288,11 @@ fun BrokerMasterListScreen(
                                 formAddress = broker.address
                                 showEditDialog = true
                             },
-                            onDelete = {
+                            onShare = {
+                                ledgerOwnerForShare = broker.brokerName
+                                showShareSheet = true
+                            },
+                            onDeleteLedger = {
                                 selectedBrokerForDelete = broker
                                 showDeleteDialog = true
                             },
@@ -369,26 +378,33 @@ fun BrokerMasterListScreen(
     }
 
     // Delete Confirmation Dialog
+    // Delete Ledger Dialog
     if (showDeleteDialog && selectedBrokerForDelete != null) {
         val broker = selectedBrokerForDelete!!
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete Broker?") },
-            text = { Text("Are you sure you want to delete ${broker.brokerName} from the database? This action cannot be undone.") },
+            title = { Text("Delete all ledger records for this party?") },
+            text = { Text("This will only delete ledger transactions.\nThe Master List will remain unchanged.") },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.deleteBroker(
-                            brokerId = broker.brokerId,
-                            brokerName = broker.brokerName,
-                            onSuccess = {
-                                showDeleteDialog = false
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("Broker Deleted Successfully")
-                                }
-                            },
-                            onError = { error ->
-                                Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
+                        com.example.util.BiometricHelper.runWithBiometric(
+                            context = context,
+                            title = "Ranisa Security",
+                            subtitle = "Verify your fingerprint to continue.",
+                            action = {
+                                viewModel.deleteBrokerLedger(
+                                    brokerName = broker.brokerName,
+                                    onSuccess = {
+                                        showDeleteDialog = false
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("Ledger transactions deleted successfully")
+                                        }
+                                    },
+                                    onError = { error ->
+                                        Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
+                                    }
+                                )
                             }
                         )
                     },
@@ -405,6 +421,24 @@ fun BrokerMasterListScreen(
             shape = RoundedCornerShape(16.dp)
         )
     }
+
+    // Share Ledger Bottom Sheet
+    if (showShareSheet && ledgerOwnerForShare != null) {
+        val ownerName = ledgerOwnerForShare!!
+        val filteredBillsForOwner = remember(bills, ownerName) {
+            bills.filter { it.brokerName == ownerName }
+        }
+        FullLedgerShareSheet(
+            ledgerName = ownerName,
+            ledgerType = "broker",
+            bills = filteredBillsForOwner,
+            payments = payments,
+            onDismissRequest = {
+                showShareSheet = false
+                ledgerOwnerForShare = null
+            }
+        )
+    }
 }
 
 @Composable
@@ -413,7 +447,8 @@ fun BrokerCard(
     billCount: Int,
     totalQtls: Double,
     onEdit: () -> Unit,
-    onDelete: () -> Unit,
+    onShare: () -> Unit,
+    onDeleteLedger: () -> Unit,
     onCardClick: () -> Unit
 ) {
     Card(
@@ -525,41 +560,46 @@ fun BrokerCard(
                 }
             }
 
-            // Right Actions
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.padding(start = 8.dp)
-            ) {
-                // Edit (Blue)
+            // Right Actions: Three-dot Menu Action
+            var menuExpanded by remember { mutableStateOf(false) }
+            Box(modifier = Modifier.padding(start = 8.dp)) {
                 IconButton(
-                    onClick = onEdit,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFEDF5FF))
+                    onClick = { menuExpanded = true },
+                    modifier = Modifier.testTag("broker_card_menu_${broker.brokerId}")
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Edit,
-                        contentDescription = "Edit",
-                        tint = Color(0xFF2F80ED),
-                        modifier = Modifier.size(18.dp)
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "More options",
+                        tint = Color.Gray
                     )
                 }
-
-                // Delete (Red)
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFFFECEC))
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false }
                 ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Delete,
-                        contentDescription = "Delete",
-                        tint = Color.Red,
-                        modifier = Modifier.size(18.dp)
+                    DropdownMenuItem(
+                        text = { Text("✏️ Edit") },
+                        onClick = {
+                            menuExpanded = false
+                            onEdit()
+                        },
+                        modifier = Modifier.testTag("broker_card_edit_${broker.brokerId}")
+                    )
+                    DropdownMenuItem(
+                        text = { Text("📤 Share Ledger") },
+                        onClick = {
+                            menuExpanded = false
+                            onShare()
+                        },
+                        modifier = Modifier.testTag("broker_card_share_${broker.brokerId}")
+                    )
+                    DropdownMenuItem(
+                        text = { Text("🗑 Delete Ledger") },
+                        onClick = {
+                            menuExpanded = false
+                            onDeleteLedger()
+                        },
+                        modifier = Modifier.testTag("broker_card_delete_ledger_${broker.brokerId}")
                     )
                 }
             }
@@ -750,6 +790,10 @@ fun BrokerSelectionDialog(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var selectedBrokerForDelete by remember { mutableStateOf<FirebaseBroker?>(null) }
     
+    // Share sheet states
+    var showShareSheet by remember { mutableStateOf(false) }
+    var ledgerOwnerForShare by remember { mutableStateOf<String?>(null) }
+    
     // Form States
     var formName by remember { mutableStateOf("") }
     val formMobiles = remember { mutableStateListOf<String>() }
@@ -758,6 +802,7 @@ fun BrokerSelectionDialog(
     // Brokers from database
     val brokersList by viewModel.rtdbFullBrokers.collectAsState()
     val bills by viewModel.allBills.collectAsState()
+    val payments by viewModel.allPayments.collectAsState()
     
     // Filtered Brokers
     val filteredBrokers = remember(searchQuery, brokersList) {
@@ -936,7 +981,11 @@ fun BrokerSelectionDialog(
                                         formAddress = broker.address
                                         showEditDialog = true
                                     },
-                                    onDelete = {
+                                    onShare = {
+                                        ledgerOwnerForShare = broker.brokerName
+                                        showShareSheet = true
+                                    },
+                                    onDeleteLedger = {
                                         selectedBrokerForDelete = broker
                                         showDeleteDialog = true
                                     },
@@ -1036,20 +1085,26 @@ fun BrokerSelectionDialog(
                     if (brokerToDelete != null) {
                         AlertDialog(
                             onDismissRequest = { showDeleteDialog = false },
-                            title = { Text("Delete Broker", fontWeight = FontWeight.Bold, color = Color(0xFF322659)) },
-                            text = { Text("Are you sure you want to delete ${brokerToDelete.brokerName} from the database? This action cannot be undone.") },
+                            title = { Text("Delete all ledger records for this party?", fontWeight = FontWeight.Bold, color = Color(0xFF322659)) },
+                            text = { Text("This will only delete ledger transactions.\nThe Master List will remain unchanged.") },
                             confirmButton = {
                                 Button(
                                     onClick = {
-                                        viewModel.deleteBroker(
-                                            brokerId = brokerToDelete.brokerId,
-                                            brokerName = brokerToDelete.brokerName,
-                                            onSuccess = {
-                                                Toast.makeText(context, "Broker Deleted Successfully", Toast.LENGTH_SHORT).show()
-                                                showDeleteDialog = false
-                                            },
-                                            onError = { err ->
-                                                Toast.makeText(context, err, Toast.LENGTH_LONG).show()
+                                        com.example.util.BiometricHelper.runWithBiometric(
+                                            context = context,
+                                            title = "Ranisa Security",
+                                            subtitle = "Verify your fingerprint to continue.",
+                                            action = {
+                                                viewModel.deleteBrokerLedger(
+                                                    brokerName = brokerToDelete.brokerName,
+                                                    onSuccess = {
+                                                        Toast.makeText(context, "Ledger transactions deleted successfully", Toast.LENGTH_SHORT).show()
+                                                        showDeleteDialog = false
+                                                    },
+                                                    onError = { err ->
+                                                        Toast.makeText(context, err, Toast.LENGTH_LONG).show()
+                                                    }
+                                                )
                                             }
                                         )
                                     },
@@ -1066,6 +1121,24 @@ fun BrokerSelectionDialog(
                             shape = RoundedCornerShape(16.dp)
                         )
                     }
+                }
+
+                // Share Ledger Bottom Sheet
+                if (showShareSheet && ledgerOwnerForShare != null) {
+                    val ownerName = ledgerOwnerForShare!!
+                    val filteredBillsForOwner = remember(bills, ownerName) {
+                        bills.filter { it.brokerName == ownerName }
+                    }
+                    FullLedgerShareSheet(
+                        ledgerName = ownerName,
+                        ledgerType = "broker",
+                        bills = filteredBillsForOwner,
+                        payments = payments,
+                        onDismissRequest = {
+                            showShareSheet = false
+                            ledgerOwnerForShare = null
+                        }
+                    )
                 }
             }
         }

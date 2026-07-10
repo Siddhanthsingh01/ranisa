@@ -414,6 +414,7 @@ object FirebaseService {
                 "remark2" to bill.remark2,
                 "brokerName" to bill.brokerName,
                 "brokerId" to bill.brokerId,
+                "eb" to bill.eb,
                 "createdBy" to user,
                 "createdRole" to role,
                 "createdTime" to com.google.firebase.database.ServerValue.TIMESTAMP,
@@ -543,6 +544,7 @@ object FirebaseService {
                 "remark2" to newBill.remark2,
                 "brokerName" to newBill.brokerName,
                 "brokerId" to newBill.brokerId,
+                "eb" to newBill.eb,
                 "createdBy" to (oldBill?.sellerName ?: user), // reuse some placeholder if not saved
                 "createdRole" to role,
                 "createdTime" to com.google.firebase.database.ServerValue.TIMESTAMP,
@@ -1634,6 +1636,13 @@ object FirebaseService {
             val remark2 = child.child("remark2").getValue(String::class.java) ?: ""
             val brokerName = child.child("brokerName").getValue(String::class.java) ?: ""
             val brokerId = child.child("brokerId").getValue(String::class.java) ?: ""
+            val ebVal = child.child("eb").value
+            val eb = when (ebVal) {
+                is String -> ebVal
+                is Number -> ebVal.toString()
+                is Boolean -> ebVal.toString()
+                else -> ""
+            }
 
             // Parse key as fallback ID to maintain uniqueness
             val key = child.key ?: ""
@@ -1682,7 +1691,8 @@ object FirebaseService {
                 remark1 = remark1,
                 remark2 = remark2,
                 brokerName = brokerName,
-                brokerId = brokerId
+                brokerId = brokerId,
+                eb = eb
             )
         } catch (e: Exception) {
             Log.e("FirebaseService", "Error parsing bill snapshot", e)

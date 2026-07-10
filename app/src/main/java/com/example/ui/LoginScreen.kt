@@ -56,19 +56,8 @@ fun LoginScreen(
     val prefs = remember(context) { context.getSharedPreferences("ranisa_prefs", android.content.Context.MODE_PRIVATE) }
     var rememberMe by remember { mutableStateOf(prefs.getBoolean("remember_me", false)) }
 
-    var showWelcomeAnimation by remember { mutableStateOf(false) }
-    var loggedInUser by remember { mutableStateOf("") }
-    var loggedInRole by remember { mutableStateOf("") }
-
     val handleLoginSuccess = { u: String, r: String ->
-        val isGreetingEnabled = prefs.getBoolean("login_greeting_enabled", true)
-        if (isGreetingEnabled) {
-            loggedInUser = u
-            loggedInRole = r
-            showWelcomeAnimation = true
-        } else {
-            onLoginSuccess(u, r)
-        }
+        onLoginSuccess(u, r)
     }
 
     // Auto-login at startup
@@ -105,27 +94,13 @@ fun LoginScreen(
     // Brand color: Elegant Purple requested (#6C4CF1)
     val purplePrimary = Color(0xFF6C4CF1)
 
-    if (showWelcomeAnimation) {
-        val voicePlayer = remember(context) { GreetingVoicePlayer(context) }
-        
-        DisposableEffect(Unit) {
-            voicePlayer.playGreeting(loggedInUser) {
-                onLoginSuccess(loggedInUser, loggedInRole)
-            }
-            onDispose {
-                voicePlayer.shutdown()
-            }
-        }
-
-        WelcomeGreetingOverlay(username = loggedInUser)
-    } else {
-        // Main scrollable form
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.White)
-                .windowInsetsPadding(WindowInsets.safeDrawing)
-        ) {
+    // Main scrollable form
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -465,198 +440,6 @@ fun LoginScreen(
                 modifier = Modifier.padding(bottom = 20.dp)
             )
         }
-    }
-    }
-}
-
-@Composable
-fun WelcomeGreetingOverlay(username: String) {
-    val displayName = remember(username) {
-        if (username.contains("(")) username.substringBefore("(").trim() else username
-    }
-    
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF1E1B4B), // Elegant indigo/midnight purple
-                        Color(0xFF311042)  // Deep rich royal purple
-                    )
-                )
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp)
-        ) {
-            // Pulsing aura circle around center icon
-            PulsingAuraCircle()
-            
-            Spacer(modifier = Modifier.height(48.dp))
-            
-            // Devotional greeting
-            Text(
-                text = "हरे कृष्ण",
-                fontSize = 36.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFFFFD700), // Gold accent color
-                textAlign = TextAlign.Center,
-                letterSpacing = 1.sp
-            )
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            // User Name
-            Text(
-                text = "$displayName जी",
-                fontSize = 28.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Color.White,
-                textAlign = TextAlign.Center
-            )
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            // Welcome Message
-            Text(
-                text = "रानीसा में आपका हार्दिक स्वागत है।",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color.White.copy(alpha = 0.85f),
-                textAlign = TextAlign.Center
-            )
-            
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            // Subtitle / Wishing
-            Text(
-                text = "आपका दिन मंगलमय हो।",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Normal,
-                color = Color.White.copy(alpha = 0.65f),
-                textAlign = TextAlign.Center
-            )
-            
-            Spacer(modifier = Modifier.height(48.dp))
-            
-            // Beautiful voice waveform animation
-            VoiceWaveform()
-        }
-    }
-}
-
-@Composable
-fun PulsingAuraCircle(modifier: Modifier = Modifier) {
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val scale1 by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 2.2f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = LinearOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "scale1"
-    )
-    val alpha1 by infiniteTransition.animateFloat(
-        initialValue = 0.5f,
-        targetValue = 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = LinearOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "alpha1"
-    )
-    
-    val scale2 by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 2.2f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, delayMillis = 750, easing = LinearOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "scale2"
-    )
-    val alpha2 by infiniteTransition.animateFloat(
-        initialValue = 0.5f,
-        targetValue = 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, delayMillis = 750, easing = LinearOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "alpha2"
-    )
-
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        // Outer aura 1
-        Box(
-            Modifier
-                .size(100.dp)
-                .graphicsLayer(scaleX = scale1, scaleY = scale1, alpha = alpha1)
-                .background(Color(0xFF6C4CF1).copy(alpha = 0.3f), shape = CircleShape)
-        )
-        // Outer aura 2
-        Box(
-            Modifier
-                .size(100.dp)
-                .graphicsLayer(scaleX = scale2, scaleY = scale2, alpha = alpha2)
-                .background(Color(0xFF6C4CF1).copy(alpha = 0.3f), shape = CircleShape)
-        )
-        // Central icon container
-        Box(
-            Modifier
-                .size(100.dp)
-                .background(Color(0xFF6C4CF1), shape = CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = "Welcome Icon",
-                tint = Color.White,
-                modifier = Modifier.size(50.dp)
-            )
-        }
-    }
-}
-
-@Composable
-fun VoiceWaveform() {
-    val infiniteTransition = rememberInfiniteTransition(label = "waveform")
-    
-    @Composable
-    fun WaveBar(duration: Int) {
-        val heightMultiplier by infiniteTransition.animateFloat(
-            initialValue = 0.2f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(duration, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "barHeight"
-        )
-        Box(
-            modifier = Modifier
-                .width(6.dp)
-                .height(40.dp * heightMultiplier)
-                .background(Color(0xFFFFD700), shape = RoundedCornerShape(3.dp))
-        )
-    }
-
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.height(50.dp)
-    ) {
-        WaveBar(350)
-        WaveBar(550)
-        WaveBar(450)
-        WaveBar(600)
-        WaveBar(400)
     }
 }
 
