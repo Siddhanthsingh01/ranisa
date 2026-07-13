@@ -2,8 +2,10 @@ package com.example.ui
 
 import android.widget.Toast
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -38,6 +40,7 @@ import com.example.data.FirebaseBroker
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import com.example.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,15 +90,24 @@ fun BrokerMasterListScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = {
+            SnackbarHost(snackbarHostState) { data ->
+                Snackbar(
+                    snackbarData = data,
+                    containerColor = MaterialTheme.colorScheme.inverseSurface,
+                    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                    actionColor = MaterialTheme.colorScheme.inversePrimary,
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+        },
         topBar = {
             TopAppBar(
                 title = {
                     Text(
                         "Broker Master List",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
-                        color = Color.White
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onPrimary
                     )
                 },
                 navigationIcon = {
@@ -106,7 +118,7 @@ fun BrokerMasterListScreen(
                         Icon(
                             imageVector = Icons.Default.Menu,
                             contentDescription = "Open Drawer Menu",
-                            tint = Color.White
+                            tint = MaterialTheme.colorScheme.onPrimary
                         )
                     }
                 },
@@ -115,7 +127,7 @@ fun BrokerMasterListScreen(
                         Icon(
                             imageVector = Icons.Default.MoreVert,
                             contentDescription = "More options",
-                            tint = Color.White
+                            tint = MaterialTheme.colorScheme.onPrimary
                         )
                     }
                     DropdownMenu(
@@ -133,7 +145,10 @@ fun BrokerMasterListScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF322659) // Deep Purple Theme
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
                 )
             )
         },
@@ -146,9 +161,9 @@ fun BrokerMasterListScreen(
                     formAddress = ""
                     showAddDialog = true
                 },
-                containerColor = Color(0xFF322659),
-                contentColor = Color.White,
-                shape = CircleShape,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .padding(16.dp)
                     .testTag("add_broker_fab")
@@ -166,45 +181,18 @@ fun BrokerMasterListScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .background(Color(0xFFF9F9FB)) // Premium White/Off-White Background
+                .background(MaterialTheme.colorScheme.background)
         ) {
             // Search field
-            OutlinedTextField(
+            EnterpriseSearchField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("Search Broker Name...") },
+                placeholder = "Search Broker Name...",
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp)
-                    .testTag("broker_search_input"),
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Outlined.Search,
-                        contentDescription = "Search icon",
-                        tint = Color.Gray
-                    )
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Clear search",
-                                tint = Color.Gray
-                            )
-                        }
-                    }
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(28.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFF322659),
-                    unfocusedBorderColor = Color(0xFFE2E8F0),
-                    focusedContainerColor = Color.White,
-                    unfocusedContainerColor = Color.White
-                ),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() })
+                    .padding(16.dp),
+                onClear = { searchQuery = "" },
+                testTag = "broker_search_input"
             )
 
             // Content
@@ -225,21 +213,21 @@ fun BrokerMasterListScreen(
                             imageVector = Icons.Default.People,
                             contentDescription = "No brokers",
                             modifier = Modifier
-                                .size(100.dp)
+                                .size(96.dp)
                                 .padding(bottom = 16.dp),
-                            tint = Color(0xFFCBC8D6)
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                         )
                         Text(
                             text = "No Brokers Found",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = Color(0xFF322659)
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "Add brokers to start tracking transactions.",
-                            fontSize = 14.sp,
-                            color = Color.Gray
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(24.dp))
                         Button(
@@ -250,7 +238,7 @@ fun BrokerMasterListScreen(
                                 formAddress = ""
                                 showAddDialog = true
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF322659)),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(Icons.Default.Add, contentDescription = null)
@@ -381,44 +369,35 @@ fun BrokerMasterListScreen(
     // Delete Ledger Dialog
     if (showDeleteDialog && selectedBrokerForDelete != null) {
         val broker = selectedBrokerForDelete!!
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete all ledger records for this party?") },
-            text = { Text("This will only delete ledger transactions.\nThe Master List will remain unchanged.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        com.example.util.BiometricHelper.runWithBiometric(
-                            context = context,
-                            title = "Ranisa Security",
-                            subtitle = "Verify your fingerprint to continue.",
-                            action = {
-                                viewModel.deleteBrokerLedger(
-                                    brokerName = broker.brokerName,
-                                    onSuccess = {
-                                        showDeleteDialog = false
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar("Ledger transactions deleted successfully")
-                                        }
-                                    },
-                                    onError = { error ->
-                                        Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
-                                    }
-                                )
+        EnterpriseDialog(
+            title = "Delete all ledger records for this party?",
+            description = "This will only delete ledger transactions.\nThe Master List will remain unchanged.",
+            confirmText = "Delete",
+            dismissText = "Cancel",
+            onConfirm = {
+                com.example.util.BiometricHelper.runWithBiometric(
+                    context = context,
+                    title = "Ranisa Security",
+                    subtitle = "Verify your fingerprint to continue.",
+                    action = {
+                        viewModel.deleteBrokerLedger(
+                            brokerName = broker.brokerName,
+                            onSuccess = {
+                                showDeleteDialog = false
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("Ledger transactions deleted successfully")
+                                }
+                            },
+                            onError = { error ->
+                                Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
                             }
                         )
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
-                ) {
-                    Text("Delete")
-                }
+                    }
+                )
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Cancel")
-                }
-            },
-            shape = RoundedCornerShape(16.dp)
+            onDismiss = { showDeleteDialog = false },
+            icon = Icons.Default.Delete,
+            confirmButtonColor = MaterialTheme.colorScheme.error
         )
     }
 
@@ -451,14 +430,18 @@ fun BrokerCard(
     onDeleteLedger: () -> Unit,
     onCardClick: () -> Unit
 ) {
+    val isDark = isSystemInDarkTheme()
+    val borderCol = if (isDark) MaterialTheme.colorScheme.outline.copy(alpha = 0.25f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+
     Card(
+        onClick = onCardClick,
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(elevation = 3.dp, shape = RoundedCornerShape(12.dp))
-            .clickable { onCardClick() }
             .testTag("broker_card_${broker.brokerId}"),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, borderCol)
     ) {
         Row(
             modifier = Modifier
@@ -478,14 +461,13 @@ fun BrokerCard(
                     modifier = Modifier
                         .size(48.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFF322659).copy(alpha = 0.12f)),
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = initialLetter.uppercase(),
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF322659),
-                        fontSize = 20.sp
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
 
@@ -495,17 +477,16 @@ fun BrokerCard(
                 Column {
                     Text(
                         text = broker.brokerName,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = Color(0xFF2D3748),
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     
                     Text(
                         text = "$billCount Registered Billings",
-                        fontSize = 12.sp,
-                        color = Color.Gray,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.padding(top = 2.dp)
                     )
@@ -516,33 +497,32 @@ fun BrokerCard(
                     ) {
                         Text(
                             text = "Total Qtls: ",
-                            fontSize = 12.sp,
-                            color = Color.Gray
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
                             text = "${String.format("%.2f", totalQtls)} Qtls",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF322659)
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
 
                     if (broker.mobile.isNotBlank()) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(top = 2.dp)
+                            modifier = Modifier.padding(top = 4.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Phone,
                                 contentDescription = null,
-                                modifier = Modifier.size(11.dp),
-                                tint = Color.Gray
+                                modifier = Modifier.size(12.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(modifier = Modifier.width(3.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = broker.mobile,
-                                fontSize = 11.sp,
-                                color = Color.Gray
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -550,11 +530,11 @@ fun BrokerCard(
                     if (broker.address.isNotBlank()) {
                         Text(
                             text = broker.address,
-                            fontSize = 11.sp,
-                            color = Color.Gray,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 2.dp)
+                            modifier = Modifier.padding(top = 4.dp)
                         )
                     }
                 }
@@ -570,7 +550,7 @@ fun BrokerCard(
                     Icon(
                         imageVector = Icons.Default.MoreVert,
                         contentDescription = "More options",
-                        tint = Color.Gray
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 DropdownMenu(
@@ -621,24 +601,24 @@ fun BrokerMasterFormDialog(
 ) {
     Dialog(onDismissRequest = onDismiss) {
         Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
+            shape = AppCorners.extraLarge,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(8.dp)
-                .shadow(8.dp, shape = RoundedCornerShape(16.dp))
+                .padding(AppSpacing.md),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)),
+            elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.high)
         ) {
             Column(
                 modifier = Modifier
-                    .padding(20.dp)
+                    .padding(AppSpacing.xl)
                     .fillMaxWidth()
             ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF322659),
-                    modifier = Modifier.padding(bottom = 16.dp)
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = AppSpacing.md)
                 )
 
                 // Name Input
@@ -647,33 +627,35 @@ fun BrokerMasterFormDialog(
                     onValueChange = onNameChange,
                     label = { Text("Broker Name *") },
                     singleLine = true,
-                    textStyle = LocalTextStyle.current.copy(color = Color.Black),
+                    textStyle = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 12.dp)
+                        .padding(bottom = AppSpacing.md)
                         .testTag("form_broker_name"),
+                    shape = AppCorners.medium,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF322659),
-                        focusedLabelColor = Color(0xFF322659),
-                        focusedTextColor = Color.Black,
-                        unfocusedTextColor = Color.Black
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedLabelColor = MaterialTheme.colorScheme.primary,
+                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                     )
                 )
 
                 // Mobiles Column
                 Text(
                     text = "Mobile Numbers",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    color = Color(0xFF322659),
-                    modifier = Modifier.padding(bottom = 4.dp)
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = AppSpacing.xs)
                 )
                 
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                        .padding(bottom = AppSpacing.md),
+                    verticalArrangement = Arrangement.spacedBy(AppSpacing.xs)
                 ) {
                     mobiles.forEachIndexed { index, mobileValue ->
                         Row(
@@ -686,15 +668,18 @@ fun BrokerMasterFormDialog(
                                 label = { Text("Mobile Number ${index + 1}") },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                                textStyle = LocalTextStyle.current.copy(color = Color.Black),
+                                textStyle = MaterialTheme.typography.bodyLarge,
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("form_broker_mobile_$index"),
+                                shape = AppCorners.medium,
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = Color(0xFF322659),
-                                    focusedLabelColor = Color(0xFF322659),
-                                    focusedTextColor = Color.Black,
-                                    unfocusedTextColor = Color.Black
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                                    focusedLabelColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                                 )
                             )
                             Spacer(modifier = Modifier.width(8.dp))
@@ -704,12 +689,12 @@ fun BrokerMasterFormDialog(
                                     modifier = Modifier
                                         .size(40.dp)
                                         .clip(CircleShape)
-                                        .background(Color(0xFFE6FFFA))
+                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Add,
                                         contentDescription = "Add Mobile",
-                                        tint = Color(0xFF319795)
+                                        tint = MaterialTheme.colorScheme.primary
                                     )
                                 }
                             } else {
@@ -718,12 +703,12 @@ fun BrokerMasterFormDialog(
                                     modifier = Modifier
                                         .size(40.dp)
                                         .clip(CircleShape)
-                                        .background(Color(0xFFFFECEC))
+                                        .background(MaterialTheme.colorScheme.error.copy(alpha = 0.1f))
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Remove,
                                         contentDescription = "Remove Mobile",
-                                        tint = Color.Red
+                                        tint = MaterialTheme.colorScheme.error
                                     )
                                 }
                             }
@@ -737,35 +722,38 @@ fun BrokerMasterFormDialog(
                     onValueChange = onAddressChange,
                     label = { Text("Address") },
                     maxLines = 2,
-                    textStyle = LocalTextStyle.current.copy(color = Color.Black),
+                    textStyle = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 20.dp)
+                        .padding(bottom = AppSpacing.lg)
                         .testTag("form_broker_address"),
+                    shape = AppCorners.medium,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF322659),
-                        focusedLabelColor = Color(0xFF322659),
-                        focusedTextColor = Color.Black,
-                        unfocusedTextColor = Color.Black
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedLabelColor = MaterialTheme.colorScheme.primary,
+                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                     )
                 )
 
                 // Buttons
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Cancel", color = Color.Gray)
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
+                    EnterpriseOutlinedButton(
+                        text = "Cancel",
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f)
+                    )
+                    EnterprisePrimaryButton(
+                        text = "Save Changes",
                         onClick = onSave,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF322659)),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text("Save Changes")
-                    }
+                        modifier = Modifier.weight(1.3f)
+                    )
                 }
             }
         }
@@ -827,15 +815,24 @@ fun BrokerSelectionDialog(
             color = MaterialTheme.colorScheme.background
         ) {
             Scaffold(
-                snackbarHost = { SnackbarHost(snackbarHostState) },
+                snackbarHost = {
+                    SnackbarHost(snackbarHostState) { data ->
+                        Snackbar(
+                            snackbarData = data,
+                            containerColor = MaterialTheme.colorScheme.inverseSurface,
+                            contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                            actionColor = MaterialTheme.colorScheme.inversePrimary,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    }
+                },
                 topBar = {
                     TopAppBar(
                         title = {
                             Text(
                                 "Select Broker",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 20.sp,
-                                color = Color.White
+                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onPrimary
                             )
                         },
                         navigationIcon = {
@@ -846,12 +843,15 @@ fun BrokerSelectionDialog(
                                 Icon(
                                     imageVector = Icons.Default.ArrowBack,
                                     contentDescription = "Back",
-                                    tint = Color.White
+                                    tint = MaterialTheme.colorScheme.onPrimary
                                 )
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = Color(0xFF322659)
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                            navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                            actionIconContentColor = MaterialTheme.colorScheme.onPrimary
                         )
                     )
                 },
@@ -864,8 +864,9 @@ fun BrokerSelectionDialog(
                             formAddress = ""
                             showAddDialog = true
                         },
-                        containerColor = Color(0xFF322659),
-                        contentColor = Color.White,
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        shape = RoundedCornerShape(16.dp),
                         modifier = Modifier.testTag("broker_selection_add_fab")
                     ) {
                         Icon(Icons.Default.Add, contentDescription = "Add New Broker")
@@ -876,34 +877,35 @@ fun BrokerSelectionDialog(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(paddingValues)
-                        .background(Color(0xFFF7FAFC))
+                        .background(MaterialTheme.colorScheme.background)
                 ) {
                     // Search Bar
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(16.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 2.dp)
+                                .padding(horizontal = 16.dp, vertical = 2.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.Search,
                                 contentDescription = "Search Icon",
-                                tint = Color.Gray,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             OutlinedTextField(
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it },
-                                placeholder = { Text("Search Broker Name or Mobile...", fontSize = 14.sp) },
+                                placeholder = { Text("Search Broker Name or Mobile...", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)) },
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("broker_selection_search_input"),
@@ -911,18 +913,20 @@ fun BrokerSelectionDialog(
                                     focusedBorderColor = Color.Transparent,
                                     unfocusedBorderColor = Color.Transparent,
                                     disabledBorderColor = Color.Transparent,
-                                    focusedTextColor = Color.Black,
-                                    unfocusedTextColor = Color.Black
+                                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent
                                 ),
                                 singleLine = true,
-                                textStyle = LocalTextStyle.current.copy(fontSize = 14.sp, color = Color.Black)
+                                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface)
                             )
                             if (searchQuery.isNotEmpty()) {
                                 IconButton(onClick = { searchQuery = "" }) {
                                     Icon(
                                         imageVector = Icons.Default.Close,
                                         contentDescription = "Clear Search",
-                                        tint = Color.Gray
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
@@ -941,13 +945,13 @@ fun BrokerSelectionDialog(
                                     imageVector = Icons.Default.Storefront,
                                     contentDescription = null,
                                     modifier = Modifier.size(64.dp),
-                                    tint = Color.Gray.copy(alpha = 0.5f)
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
                                     text = if (searchQuery.isEmpty()) "No Brokers Found" else "No matching brokers found",
-                                    fontWeight = FontWeight.Medium,
-                                    color = Color.Gray
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -1077,51 +1081,40 @@ fun BrokerSelectionDialog(
                             }
                         )
                     }
-                }
-
-                // Delete Dialog
+                         // Delete Dialog
                 if (showDeleteDialog) {
                     val brokerToDelete = selectedBrokerForDelete
                     if (brokerToDelete != null) {
-                        AlertDialog(
-                            onDismissRequest = { showDeleteDialog = false },
-                            title = { Text("Delete all ledger records for this party?", fontWeight = FontWeight.Bold, color = Color(0xFF322659)) },
-                            text = { Text("This will only delete ledger transactions.\nThe Master List will remain unchanged.") },
-                            confirmButton = {
-                                Button(
-                                    onClick = {
-                                        com.example.util.BiometricHelper.runWithBiometric(
-                                            context = context,
-                                            title = "Ranisa Security",
-                                            subtitle = "Verify your fingerprint to continue.",
-                                            action = {
-                                                viewModel.deleteBrokerLedger(
-                                                    brokerName = brokerToDelete.brokerName,
-                                                    onSuccess = {
-                                                        Toast.makeText(context, "Ledger transactions deleted successfully", Toast.LENGTH_SHORT).show()
-                                                        showDeleteDialog = false
-                                                    },
-                                                    onError = { err ->
-                                                        Toast.makeText(context, err, Toast.LENGTH_LONG).show()
-                                                    }
-                                                )
+                        EnterpriseDialog(
+                            title = "Delete all ledger records for this party?",
+                            description = "This will only delete ledger transactions.\nThe Master List will remain unchanged.",
+                            confirmText = "Delete",
+                            dismissText = "Cancel",
+                            onConfirm = {
+                                com.example.util.BiometricHelper.runWithBiometric(
+                                    context = context,
+                                    title = "Ranisa Security",
+                                    subtitle = "Verify your fingerprint to continue.",
+                                    action = {
+                                        viewModel.deleteBrokerLedger(
+                                            brokerName = brokerToDelete.brokerName,
+                                            onSuccess = {
+                                                Toast.makeText(context, "Ledger transactions deleted successfully", Toast.LENGTH_SHORT).show()
+                                                showDeleteDialog = false
+                                            },
+                                            onError = { err ->
+                                                Toast.makeText(context, err, Toast.LENGTH_LONG).show()
                                             }
                                         )
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
-                                ) {
-                                    Text("Delete", color = Color.White)
-                                }
+                                    }
+                                )
                             },
-                            dismissButton = {
-                                TextButton(onClick = { showDeleteDialog = false }) {
-                                    Text("Cancel")
-                                }
-                            },
-                            shape = RoundedCornerShape(16.dp)
+                            onDismiss = { showDeleteDialog = false },
+                            icon = Icons.Default.Delete,
+                            confirmButtonColor = MaterialTheme.colorScheme.error
                         )
                     }
-                }
+                }         }
 
                 // Share Ledger Bottom Sheet
                 if (showShareSheet && ledgerOwnerForShare != null) {

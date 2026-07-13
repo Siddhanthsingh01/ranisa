@@ -1,6 +1,7 @@
 package com.example.ui
 
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -25,6 +26,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.example.ui.theme.AppCorners
+import com.example.ui.theme.AppSpacing
+import com.example.ui.theme.ColorSuccess
+import com.example.ui.theme.ColorError
 import com.example.util.BiometricHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -38,7 +43,7 @@ fun SecuritySettingsScreen(navController: NavController) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Security Settings", fontWeight = FontWeight.Bold, color = Color.White) },
+                title = { Text("Security Settings", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary) },
                 navigationIcon = {
                     IconButton(
                         onClick = { navController.popBackStack() },
@@ -47,13 +52,13 @@ fun SecuritySettingsScreen(navController: NavController) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Go Back",
-                            tint = Color.White
+                            tint = MaterialTheme.colorScheme.onPrimary
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF322659), // Ranisa Rich Purple
-                    titleContentColor = Color.White
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary
                 )
             )
         }
@@ -61,35 +66,36 @@ fun SecuritySettingsScreen(navController: NavController) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFFF9F9FB)) // Clean, modern light gray background
+                .background(MaterialTheme.colorScheme.background)
                 .padding(innerPadding)
-                .padding(16.dp)
+                .padding(AppSpacing.md)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.md)
         ) {
-            // Header Banner
+            // Header Banner (Premium Vault Accent)
             Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFECE6F0)),
-                modifier = Modifier.fillMaxWidth()
+                shape = AppCorners.large,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)),
+                modifier = Modifier.fillMaxWidth(),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
+                        .padding(AppSpacing.md),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    horizontalArrangement = Arrangement.spacedBy(AppSpacing.md)
                 ) {
                     Box(
                         modifier = Modifier
                             .size(56.dp)
-                            .background(Color(0xFF322659), shape = CircleShape),
+                            .background(MaterialTheme.colorScheme.primary, shape = CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Security,
                             contentDescription = "Security Status",
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(28.dp)
                         )
                     }
@@ -98,12 +104,13 @@ fun SecuritySettingsScreen(navController: NavController) {
                             text = "Ranisa Vault Security",
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp,
-                            color = Color(0xFF322659)
+                            color = MaterialTheme.colorScheme.primary
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "Protect your ledger transactions and cash accounting entries with device biometrics.",
                             fontSize = 12.sp,
-                            color = Color(0xFF322659).copy(alpha = 0.8f)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -111,13 +118,14 @@ fun SecuritySettingsScreen(navController: NavController) {
 
             // Fingerprint Lock Configuration Card
             Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                shape = AppCorners.large,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp)
+                    modifier = Modifier.padding(AppSpacing.md)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -126,13 +134,13 @@ fun SecuritySettingsScreen(navController: NavController) {
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(AppSpacing.md),
                             modifier = Modifier.weight(1f)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Fingerprint,
                                 contentDescription = "Fingerprint Option",
-                                tint = Color(0xFF322659),
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(28.dp)
                             )
                             Column {
@@ -140,12 +148,13 @@ fun SecuritySettingsScreen(navController: NavController) {
                                     text = "Fingerprint App Lock",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 16.sp,
-                                    color = Color.Black
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
+                                Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = "Require biometric verification when starting the app",
                                     fontSize = 12.sp,
-                                    color = Color.Gray
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -194,7 +203,7 @@ fun SecuritySettingsScreen(navController: NavController) {
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
-                    HorizontalDivider(color = Color(0xFFF1F1F1))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     Spacer(modifier = Modifier.height(16.dp))
 
                     // Diagnostic status info
@@ -207,7 +216,7 @@ fun SecuritySettingsScreen(navController: NavController) {
                         "SECURITY_UPDATE_REQUIRED" -> "Security update required"
                         else -> "Unavailable ($rawStatus)"
                     }
-                    val statusColor = if (rawStatus == "SUCCESS") Color(0xFF4CAF50) else Color(0xFFE53935)
+                    val statusColor = if (rawStatus == "SUCCESS") ColorSuccess else ColorError
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -218,7 +227,7 @@ fun SecuritySettingsScreen(navController: NavController) {
                             text = "Device Biometric Status",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color.DarkGray
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
                             text = statusText,
@@ -233,14 +242,15 @@ fun SecuritySettingsScreen(navController: NavController) {
             // Test Verification Card
             if (isBiometricEnabled) {
                 Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    shape = AppCorners.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
                         modifier = Modifier
-                            .padding(16.dp)
+                            .padding(AppSpacing.md)
                             .fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
@@ -248,14 +258,14 @@ fun SecuritySettingsScreen(navController: NavController) {
                             text = "Verify System Diagnostics",
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
-                            color = Color.Black,
+                            color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.fillMaxWidth()
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             text = "Test your fingerprint lock configuration instantly to ensure everything is ready.",
                             fontSize = 12.sp,
-                            color = Color.Gray,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.fillMaxWidth()
                         )
                         Spacer(modifier = Modifier.height(16.dp))
@@ -281,10 +291,10 @@ fun SecuritySettingsScreen(navController: NavController) {
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF322659),
-                                contentColor = Color.White
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
                             ),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = AppCorners.medium,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(48.dp)
@@ -302,7 +312,7 @@ fun SecuritySettingsScreen(navController: NavController) {
             Text(
                 text = "Ranisa respects your privacy. All biometric credentials remain securely encrypted inside your device's hardware enclave (TEE) and are never uploaded to any servers.",
                 fontSize = 11.sp,
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                 textAlign = TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()

@@ -1,5 +1,6 @@
 package com.example.ui
 
+import com.example.ui.theme.AccentColor
 import android.app.DatePickerDialog
 import android.content.Context
 import android.widget.Toast
@@ -270,12 +271,12 @@ fun FullLedgerShareSheet(
                                         onClick = { selectedFilterOption = option },
                                         label = { Text(option, fontSize = 11.sp) },
                                         colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = Color(0xFFBB86FC),
+                                            selectedContainerColor = AccentColor,
                                             selectedLabelColor = Color.Black,
                                             containerColor = Color(0xFF1F1B24),
                                             labelColor = Color.White
                                         ),
-                                        border = BorderStroke(1.dp, if (isSelected) Color(0xFFBB86FC) else Color(0xFF322E3B))
+                                        border = BorderStroke(1.dp, if (isSelected) AccentColor else Color(0xFF322E3B))
                                     )
                                 }
                             }
@@ -317,7 +318,7 @@ fun FullLedgerShareSheet(
                         Text(
                             text = "${selectedColumns.values.count { it }} of 16 selected",
                             fontSize = 11.sp,
-                            color = Color(0xFFBB86FC),
+                            color = AccentColor,
                             fontWeight = FontWeight.Medium
                         )
                     }
@@ -334,8 +335,8 @@ fun FullLedgerShareSheet(
                             },
                             modifier = Modifier.weight(1f).height(36.dp),
                             shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, Color(0xFFBB86FC).copy(alpha = 0.5f)),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFBB86FC)),
+                            border = BorderStroke(1.dp, AccentColor.copy(alpha = 0.5f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentColor),
                             contentPadding = PaddingValues(horizontal = 4.dp)
                         ) {
                             Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(12.dp))
@@ -369,8 +370,8 @@ fun FullLedgerShareSheet(
                             },
                             modifier = Modifier.weight(1.2f).height(36.dp),
                             shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, Color(0xFFBB86FC).copy(alpha = 0.3f)),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFBB86FC)),
+                            border = BorderStroke(1.dp, AccentColor.copy(alpha = 0.3f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentColor),
                             contentPadding = PaddingValues(horizontal = 4.dp)
                         ) {
                             Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(12.dp))
@@ -410,7 +411,7 @@ fun FullLedgerShareSheet(
                         Text(
                             text = "Drag ☰ to Reorder Columns (Saved Automatically)",
                             fontSize = 11.sp,
-                            color = Color(0xFFBB86FC),
+                            color = AccentColor,
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
@@ -436,7 +437,7 @@ fun FullLedgerShareSheet(
                                     colors = CardDefaults.cardColors(
                                         containerColor = if (isDragging) Color(0xFF322659) else Color(0xFF1F1B24)
                                     ),
-                                    border = BorderStroke(1.dp, if (isDragging) Color(0xFFBB86FC) else Color(0xFF322E3B)),
+                                    border = BorderStroke(1.dp, if (isDragging) AccentColor else Color(0xFF322E3B)),
                                     shape = RoundedCornerShape(6.dp)
                                 ) {
                                     Row(
@@ -504,7 +505,7 @@ fun FullLedgerShareSheet(
                                             Text(
                                                 text = "☰",
                                                 fontSize = 16.sp,
-                                                color = Color(0xFFBB86FC),
+                                                color = AccentColor,
                                                 fontWeight = FontWeight.Bold
                                             )
                                         }
@@ -633,7 +634,7 @@ fun FullLedgerShareSheet(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF2E1A47)), // dark purple highlights
-                        border = BorderStroke(1.dp, Color(0xFFBB86FC).copy(alpha = 0.5f))
+                        border = BorderStroke(1.dp, AccentColor.copy(alpha = 0.5f))
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             PreviewLabelValue("Firm Name:", firmName)
@@ -714,7 +715,7 @@ fun FullLedgerShareSheet(
                         .weight(1f)
                         .height(48.dp)
                         .testTag("full_ledger_generate_button"),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6200EE)),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                     shape = RoundedCornerShape(24.dp)
                 ) {
                     Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -736,7 +737,8 @@ fun FullLedgerShareSheet(
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.primary
                 )
             },
             text = {
@@ -747,13 +749,13 @@ fun FullLedgerShareSheet(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    CircularProgressIndicator(color = Color(0xFFBB86FC))
-                    Text("Composing tables, wrapping cell text, and generating multi-page layout. Please wait...", fontSize = 12.sp, textAlign = TextAlign.Center, color = Color.Gray)
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    Text("Composing tables, wrapping cell text, and generating multi-page layout. Please wait...", fontSize = 12.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
-            containerColor = Color(0xFF1F1B24),
-            textContentColor = Color.White,
-            titleContentColor = Color.White
+            containerColor = MaterialTheme.colorScheme.surface,
+            textContentColor = MaterialTheme.colorScheme.onSurface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface
         )
     }
 }
@@ -764,7 +766,7 @@ fun SectionHeader(title: String) {
         text = title,
         fontWeight = FontWeight.Bold,
         fontSize = 12.sp,
-        color = Color(0xFFBB86FC),
+        color = AccentColor,
         modifier = Modifier.padding(bottom = 6.dp)
     )
 }
@@ -825,7 +827,7 @@ fun DateFieldCard(
                 Text(label, fontSize = 9.sp, color = Color(0xFF8C8797))
                 Text(value, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
             }
-            Icon(Icons.Default.DateRange, contentDescription = null, tint = Color(0xFFBB86FC), modifier = Modifier.size(16.dp))
+            Icon(Icons.Default.DateRange, contentDescription = null, tint = AccentColor, modifier = Modifier.size(16.dp))
         }
     }
 }
@@ -849,7 +851,7 @@ fun ColumnCheckboxCard(
         ),
         border = BorderStroke(
             width = 1.dp,
-            color = if (isSelected) Color(0xFFBB86FC) else Color(0xFF322E3B)
+            color = if (isSelected) AccentColor else Color(0xFF322E3B)
         ),
         shape = RoundedCornerShape(8.dp)
     ) {
@@ -864,7 +866,7 @@ fun ColumnCheckboxCard(
                 checked = isSelected,
                 onCheckedChange = null, // Handled by toggleable modifier
                 colors = CheckboxDefaults.colors(
-                    checkedColor = Color(0xFFBB86FC),
+                    checkedColor = AccentColor,
                     uncheckedColor = Color(0xFF8C8797)
                 ),
                 modifier = Modifier.size(16.dp).scale(0.8f)
@@ -898,9 +900,9 @@ fun OptionChip(
             .height(36.dp)
             .clickable { onClick() },
         colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) Color(0xFFBB86FC) else Color(0xFF121212)
+            containerColor = if (isSelected) AccentColor else Color(0xFF121212)
         ),
-        border = BorderStroke(1.dp, if (isSelected) Color(0xFFBB86FC) else Color(0xFF322E3B)),
+        border = BorderStroke(1.dp, if (isSelected) AccentColor else Color(0xFF322E3B)),
         shape = RoundedCornerShape(18.dp)
     ) {
         Box(
@@ -936,7 +938,7 @@ fun ToggleRow(
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color(0xFF6200EE),
-                checkedTrackColor = Color(0xFFBB86FC),
+                checkedTrackColor = AccentColor,
                 uncheckedThumbColor = Color(0xFF8C8797),
                 uncheckedTrackColor = Color(0xFF1F1B24)
             ),

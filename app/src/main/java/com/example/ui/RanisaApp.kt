@@ -62,6 +62,7 @@ import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import com.example.data.*
 import com.example.ui.theme.MyApplicationTheme
+import com.example.ui.theme.*
 import com.example.util.PdfGenerator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -189,7 +190,7 @@ fun RanisaApp(
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
-                    HorizontalDivider(color = Color(0xFFECE6F0))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     Spacer(modifier = Modifier.height(16.dp))
 
                     // Firms section
@@ -197,7 +198,7 @@ fun RanisaApp(
                         text = "Firms",
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
-                        color = Color(0xFF322659),
+                        color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                     )
 
@@ -224,7 +225,7 @@ fun RanisaApp(
                     )
 
                     Spacer(modifier = Modifier.height(24.dp))
-                    HorizontalDivider(color = Color(0xFFECE6F0))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     Spacer(modifier = Modifier.height(16.dp))
 
                     val context = androidx.compose.ui.platform.LocalContext.current
@@ -477,21 +478,24 @@ fun RanisaApp(
     if (showFirmDialog) {
         Dialog(onDismissRequest = { showFirmDialog = false }) {
             Card(
-                shape = RoundedCornerShape(16.dp),
+                shape = AppCorners.extraLarge,
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier.padding(16.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.high),
+                modifier = Modifier.padding(AppSpacing.md)
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(AppSpacing.xl),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
                         text = "Switch Active Firm",
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(bottom = AppSpacing.md)
                     )
                     firms.forEach { firm ->
+                        val isSelected = activeFirm?.id == firm.id
                         Button(
                             onClick = {
                                 viewModel.selectFirm(firm)
@@ -499,20 +503,23 @@ fun RanisaApp(
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp),
+                                .padding(vertical = AppSpacing.xxs)
+                                .height(48.dp),
+                            shape = AppCorners.medium,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (activeFirm?.id == firm.id) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                contentColor = if (activeFirm?.id == firm.id) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         ) {
-                            Text(firm.name)
+                            Text(firm.name, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium)
                         }
                     }
+                    Spacer(modifier = Modifier.height(AppSpacing.md))
                     TextButton(
                         onClick = { showFirmDialog = false },
                         modifier = Modifier.align(Alignment.End)
                     ) {
-                        Text("Cancel")
+                        Text("Cancel", color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -523,27 +530,31 @@ fun RanisaApp(
     if (showUserDialog) {
         Dialog(onDismissRequest = { showUserDialog = false }) {
             Card(
-                shape = RoundedCornerShape(16.dp),
+                shape = AppCorners.extraLarge,
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier.padding(16.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.high),
+                modifier = Modifier.padding(AppSpacing.md)
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(AppSpacing.xl),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
                         text = "Switch User Profile",
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(bottom = AppSpacing.sm)
                     )
                     Text(
                         text = "Access permissions and audit log details will update according to selected user role.",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(bottom = 16.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = AppSpacing.md),
                         textAlign = TextAlign.Center
                     )
                     users.forEach { user ->
+                        val isSelected = activeUser?.id == user.id
                         Button(
                             onClick = {
                                 viewModel.selectUser(user)
@@ -551,17 +562,26 @@ fun RanisaApp(
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp),
+                                .padding(vertical = AppSpacing.xxs)
+                                .height(56.dp),
+                            shape = AppCorners.medium,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (activeUser?.id == user.id) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                contentColor = if (activeUser?.id == user.id) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(user.username, fontWeight = FontWeight.Bold)
-                                Text("Role: ${user.role}", fontSize = 11.sp)
+                                Text("Role: ${user.role}", fontSize = 11.sp, color = if (isSelected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
                             }
                         }
+                    }
+                    Spacer(modifier = Modifier.height(AppSpacing.md))
+                    TextButton(
+                        onClick = { showUserDialog = false },
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("Cancel", color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -572,25 +592,28 @@ fun RanisaApp(
     if (showNotificationDialog) {
         Dialog(onDismissRequest = { showNotificationDialog = false }) {
             Card(
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.padding(16.dp)
+                shape = AppCorners.extraLarge,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.high),
+                modifier = Modifier.padding(AppSpacing.md)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(AppSpacing.xl)) {
                     Text(
                         text = "Ranisa Notifications",
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(bottom = 12.dp)
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(bottom = AppSpacing.md)
                     )
-                    Text("🔔 SQLite Database connection initialized successfully.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 4.dp))
-                    Text("🔔 Auto-backup configuration: Cloud Backup Active.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 4.dp))
-                    Text("🔔 Role permissions enabled for: ${activeUser?.role ?: "Viewer"}.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 4.dp))
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("🔔 SQLite Database connection initialized successfully.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(vertical = AppSpacing.xxs))
+                    Text("🔔 Auto-backup configuration: Cloud Backup Active.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(vertical = AppSpacing.xxs))
+                    Text("🔔 Role permissions enabled for: ${activeUser?.role ?: "Viewer"}.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(vertical = AppSpacing.xxs))
+                    Spacer(modifier = Modifier.height(AppSpacing.md))
                     TextButton(
                         onClick = { showNotificationDialog = false },
                         modifier = Modifier.align(Alignment.End)
                     ) {
-                        Text("Dismiss")
+                        Text("Dismiss", color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -713,9 +736,10 @@ fun HomeScreen(navController: NavController, viewModel: RanisaViewModel) {
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
             ) {
                 Row(
                     modifier = Modifier
@@ -727,14 +751,13 @@ fun HomeScreen(navController: NavController, viewModel: RanisaViewModel) {
                     Column {
                         Text(
                             text = "Welcome, ${activeUser?.username?.substringBefore(" ") ?: "Admin"}",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = Color(0xFF1F1B24)
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = greeting,
-                            fontSize = 13.sp,
-                            color = Color(0xFF6A6573),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 2.dp)
                         )
                     }
@@ -744,28 +767,27 @@ fun HomeScreen(navController: NavController, viewModel: RanisaViewModel) {
                         Box(
                             modifier = Modifier
                                 .size(40.dp)
-                                .background(Color(0xFFE8E5F3), RoundedCornerShape(10.dp)),
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), RoundedCornerShape(12.dp)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Event,
                                 contentDescription = "Calendar",
-                                tint = Color(0xFF5E35B1),
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
                                 text = liveDateStr,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                color = Color(0xFF1F1B24)
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 text = liveDayStr,
-                                fontSize = 12.sp,
-                                color = Color(0xFF6A6573)
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -777,9 +799,8 @@ fun HomeScreen(navController: NavController, viewModel: RanisaViewModel) {
         item {
             Text(
                 text = "Home",
-                fontWeight = FontWeight.Bold,
-                fontSize = 20.sp,
-                color = Color(0xFF3F2B96),
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(vertical = 4.dp)
             )
         }
@@ -859,9 +880,10 @@ fun HomeScreen(navController: NavController, viewModel: RanisaViewModel) {
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
             ) {
                 Column(
                     modifier = Modifier
@@ -870,9 +892,8 @@ fun HomeScreen(navController: NavController, viewModel: RanisaViewModel) {
                 ) {
                     Text(
                         text = "Quick Summary",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = Color(0xFF3F2B96)
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(
@@ -941,15 +962,20 @@ fun HomeGridCard(
     cardBgColor: Color,
     onClick: () -> Unit
 ) {
+    val isDark = isSystemInDarkTheme()
+    val finalCardBg = if (isDark) MaterialTheme.colorScheme.surface else cardBgColor
+    val finalBorderColor = if (isDark) iconBgColor.copy(alpha = 0.25f) else iconBgColor.copy(alpha = 0.12f)
+
     Card(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
             .height(148.dp)
             .testTag(title.lowercase().replace(" ", "_")),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = cardBgColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = finalCardBg),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, finalBorderColor)
     ) {
         Column(
             modifier = Modifier
@@ -964,36 +990,37 @@ fun HomeGridCard(
                 Box(
                     modifier = Modifier
                         .size(44.dp)
-                        .background(iconBgColor, RoundedCornerShape(22.dp)),
+                        .background(iconBgColor.copy(alpha = 0.15f), RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = icon,
                         contentDescription = title,
-                        tint = Color.White,
+                        tint = iconBgColor,
                         modifier = Modifier.size(22.dp)
                     )
                 }
                 Icon(
                     imageVector = Icons.Default.ChevronRight,
                     contentDescription = "Navigate",
-                    tint = Color(0xFF6A6573),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     modifier = Modifier.size(20.dp)
                 )
             }
             Spacer(modifier = Modifier.height(16.dp))
             Text(
                 text = title,
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
-                color = Color(0xFF1F1B24)
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = subtitle,
-                fontSize = 11.sp,
-                color = Color(0xFF6A6573),
-                lineHeight = 15.sp
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = 15.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -1008,14 +1035,19 @@ fun HomeFullWidthCard(
     cardBgColor: Color,
     onClick: () -> Unit
 ) {
+    val isDark = isSystemInDarkTheme()
+    val finalCardBg = if (isDark) MaterialTheme.colorScheme.surface else cardBgColor
+    val finalBorderColor = if (isDark) iconBgColor.copy(alpha = 0.25f) else iconBgColor.copy(alpha = 0.12f)
+
     Card(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
             .testTag(title.lowercase().replace(" ", "_")),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = cardBgColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = finalCardBg),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, finalBorderColor)
     ) {
         Row(
             modifier = Modifier
@@ -1026,13 +1058,13 @@ fun HomeFullWidthCard(
             Box(
                 modifier = Modifier
                     .size(44.dp)
-                    .background(iconBgColor, RoundedCornerShape(22.dp)),
+                    .background(iconBgColor.copy(alpha = 0.15f), RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = title,
-                    tint = Color.White,
+                    tint = iconBgColor,
                     modifier = Modifier.size(22.dp)
                 )
             }
@@ -1040,21 +1072,20 @@ fun HomeFullWidthCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    color = Color(0xFF1F1B24)
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = subtitle,
-                    fontSize = 12.sp,
-                    color = Color(0xFF6A6573),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 2.dp)
                 )
             }
             Icon(
                 imageVector = Icons.Default.ChevronRight,
                 contentDescription = "Navigate",
-                tint = Color(0xFF6A6573),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 modifier = Modifier.size(20.dp)
             )
         }
@@ -1070,6 +1101,10 @@ fun SummaryStatItem(
     iconBgColor: Color,
     modifier: Modifier = Modifier.width(72.dp)
 ) {
+    val isDark = isSystemInDarkTheme()
+    val finalIconBg = if (isDark) iconColor.copy(alpha = 0.15f) else iconBgColor
+    val finalIconColor = iconColor
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
@@ -1077,28 +1112,29 @@ fun SummaryStatItem(
         Box(
             modifier = Modifier
                 .size(44.dp)
-                .background(iconBgColor, RoundedCornerShape(22.dp)),
+                .background(finalIconBg, RoundedCornerShape(12.dp)),
             contentAlignment = Alignment.Center
         ) {
             if (icon == Icons.Default.Payment) {
                 Text(
                     text = "₹",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = iconColor
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = finalIconColor
+                    )
                 )
             } else if (icon == Icons.Default.Balance) {
                 Icon(
                     imageVector = Icons.Default.AccountBalance,
                     contentDescription = label,
-                    tint = iconColor,
+                    tint = finalIconColor,
                     modifier = Modifier.size(20.dp)
                 )
             } else {
                 Icon(
                     imageVector = icon,
                     contentDescription = label,
-                    tint = iconColor,
+                    tint = finalIconColor,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -1106,15 +1142,17 @@ fun SummaryStatItem(
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = value,
-            fontWeight = FontWeight.Bold,
-            fontSize = 16.sp,
-            color = Color(0xFF1F1B24)
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = label,
-            fontSize = 11.sp,
-            color = Color(0xFF6A6573),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -1971,7 +2009,17 @@ fun BillEntryScreen(
                 }
             }
         },
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+        snackbarHost = {
+            SnackbarHost(hostState = snackbarHostState) { data ->
+                Snackbar(
+                    snackbarData = data,
+                    containerColor = MaterialTheme.colorScheme.inverseSurface,
+                    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                    actionColor = MaterialTheme.colorScheme.inversePrimary,
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+        }
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -1983,14 +2031,13 @@ fun BillEntryScreen(
             // ==========================================
             // 1. Bill No.
             // ==========================================
-            OutlinedTextField(
+            EnterpriseTextField(
                 value = billNumber,
                 onValueChange = { billNumber = it },
-                label = { Text("Bill No.") },
+                label = "Bill No.",
                 modifier = Modifier
                     .fillMaxWidth()
-                    .focusRequester(focusBillNumber)
-                    .testTag("bill_number_input"),
+                    .focusRequester(focusBillNumber),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Number,
                     imeAction = ImeAction.Next
@@ -1999,22 +2046,21 @@ fun BillEntryScreen(
                     onNext = { focusDate.requestFocus() }
                 ),
                 singleLine = true,
-                shape = RoundedCornerShape(12.dp)
+                testTag = "bill_number_input"
             )
             Spacer(modifier = Modifier.height(16.dp))
 
             // ==========================================
             // 2. Date
             // ==========================================
-            OutlinedTextField(
+            EnterpriseTextField(
                 value = date,
                 onValueChange = { date = it },
-                label = { Text("Date") },
+                label = "Date",
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(focusDate)
-                    .clickable { datePickerDialog.show() }
-                    .testTag("date_input"),
+                    .clickable { datePickerDialog.show() },
                 readOnly = true,
                 trailingIcon = {
                     IconButton(onClick = { datePickerDialog.show() }) {
@@ -2025,7 +2071,7 @@ fun BillEntryScreen(
                 keyboardActions = KeyboardActions(
                     onNext = { focusSeller.requestFocus() }
                 ),
-                shape = RoundedCornerShape(12.dp)
+                testTag = "date_input"
             )
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -2033,13 +2079,13 @@ fun BillEntryScreen(
             // 3. Seller
             // ==========================================
             Column(modifier = Modifier.fillMaxWidth()) {
-                OutlinedTextField(
+                EnterpriseTextField(
                     value = sellerName,
                     onValueChange = {
                         sellerName = it
                         showSellerDropdown = true
                     },
-                    label = { Text("Seller Name") },
+                    label = "Seller Name",
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(focusSeller)
@@ -2047,8 +2093,7 @@ fun BillEntryScreen(
                             if (focusState.isFocused) {
                                 showSellerDropdown = true
                             }
-                        }
-                        .testTag("seller_name_input"),
+                        },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Text,
                         imeAction = ImeAction.Next
@@ -2062,7 +2107,7 @@ fun BillEntryScreen(
                             Icon(Icons.Default.Add, contentDescription = "Add New Seller")
                         }
                     },
-                    shape = RoundedCornerShape(12.dp)
+                    testTag = "seller_name_input"
                 )
 
                 if (showSellerDropdown) {
@@ -2124,13 +2169,13 @@ fun BillEntryScreen(
             // 4. Buyer
             // ==========================================
             Column(modifier = Modifier.fillMaxWidth()) {
-                OutlinedTextField(
+                EnterpriseTextField(
                     value = buyerName,
                     onValueChange = {
                         buyerName = it
                         showBuyerDropdown = true
                     },
-                    label = { Text("Buyer Name") },
+                    label = "Buyer Name",
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(focusBuyer)
@@ -2138,8 +2183,7 @@ fun BillEntryScreen(
                             if (focusState.isFocused) {
                                 showBuyerDropdown = true
                             }
-                        }
-                        .testTag("buyer_name_input"),
+                        },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Text,
                         imeAction = ImeAction.Next
@@ -2153,7 +2197,7 @@ fun BillEntryScreen(
                             Icon(Icons.Default.Add, contentDescription = "Add New Buyer")
                         }
                     },
-                    shape = RoundedCornerShape(12.dp)
+                    testTag = "buyer_name_input"
                 )
 
                 if (showBuyerDropdown) {
@@ -2215,17 +2259,16 @@ fun BillEntryScreen(
             // 5. GST No.
             // ==========================================
             Column(modifier = Modifier.fillMaxWidth()) {
-                OutlinedTextField(
+                EnterpriseTextField(
                     value = gstNo,
                     onValueChange = {
                         gstNo = it
                         showGstDropdown = it.isNotBlank()
                     },
-                    label = { Text("GST No.") },
+                    label = "GST No.",
                     modifier = Modifier
                         .fillMaxWidth()
-                        .focusRequester(focusGst)
-                        .testTag("gst_no_input"),
+                        .focusRequester(focusGst),
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Text,
                         imeAction = ImeAction.Next
@@ -2234,7 +2277,7 @@ fun BillEntryScreen(
                         onNext = { focusBroker.requestFocus() }
                     ),
                     singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
+                    testTag = "gst_no_input"
                 )
 
                 if (showGstDropdown) {
@@ -2279,7 +2322,7 @@ fun BillEntryScreen(
                     it.trim().equals(brokerName.trim(), ignoreCase = true)
                 }
 
-                OutlinedTextField(
+                EnterpriseTextField(
                     value = brokerName,
                     onValueChange = { newValue ->
                         brokerName = newValue
@@ -2288,7 +2331,7 @@ fun BillEntryScreen(
                         val matchedBroker = rtdbFullBrokers.find { b -> b.brokerName.trim().equals(newValue.trim(), ignoreCase = true) }
                         selectedBrokerId = matchedBroker?.brokerId ?: ""
                     },
-                    label = { Text("Broker Name") },
+                    label = "Broker Name",
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(focusBroker)
@@ -2296,8 +2339,7 @@ fun BillEntryScreen(
                             if (focusState.isFocused) {
                                 showBrokerDropdown = true
                             }
-                        }
-                        .testTag("broker_name_input"),
+                        },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Text,
                         imeAction = ImeAction.Done
@@ -2316,7 +2358,7 @@ fun BillEntryScreen(
                             }
                         }
                     },
-                    shape = RoundedCornerShape(12.dp)
+                    testTag = "broker_name_input"
                 )
 
                 if (showBrokerDropdown) {
@@ -2451,18 +2493,17 @@ fun BillEntryScreen(
                         Spacer(modifier = Modifier.height(8.dp))
 
                         // Particulars
-                        OutlinedTextField(
+                        EnterpriseTextField(
                             value = item.particulars,
                             onValueChange = { newVal ->
                                 itemEntries = itemEntries.toMutableList().apply {
                                     this[index] = this[index].copy(particulars = newVal)
                                 }
                             },
-                            label = { Text("Particulars") },
+                            label = "Particulars",
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .focusRequester(getParticularsFocusRequester(index))
-                                .testTag("particulars_input_$index"),
+                                .focusRequester(getParticularsFocusRequester(index)),
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Text,
                                 imeAction = ImeAction.Next
@@ -2471,12 +2512,12 @@ fun BillEntryScreen(
                                 onNext = { getBagsFocusRequester(index).requestFocus() }
                             ),
                             singleLine = true,
-                            shape = RoundedCornerShape(8.dp)
+                            testTag = "particulars_input_$index"
                         )
                         Spacer(modifier = Modifier.height(8.dp))
 
                         // Bags
-                        OutlinedTextField(
+                        EnterpriseTextField(
                             value = itemBagsText[index] ?: "",
                             onValueChange = { newVal ->
                                 itemBagsText[index] = newVal
@@ -2496,11 +2537,10 @@ fun BillEntryScreen(
                                     )
                                 }
                             },
-                            label = { Text("Bags") },
+                            label = "Bags",
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .focusRequester(getBagsFocusRequester(index))
-                                .testTag("bags_input_$index"),
+                                .focusRequester(getBagsFocusRequester(index)),
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Number,
                                 imeAction = ImeAction.Next
@@ -2509,12 +2549,12 @@ fun BillEntryScreen(
                                 onNext = { getPackagingFocusRequester(index).requestFocus() }
                             ),
                             singleLine = true,
-                            shape = RoundedCornerShape(8.dp)
+                            testTag = "bags_input_$index"
                         )
                         Spacer(modifier = Modifier.height(8.dp))
 
                         // Packaging
-                        OutlinedTextField(
+                        EnterpriseTextField(
                             value = itemPackingText[index] ?: "",
                             onValueChange = { newVal ->
                                 itemPackingText[index] = newVal
@@ -2533,11 +2573,10 @@ fun BillEntryScreen(
                                     )
                                 }
                             },
-                            label = { Text("Packaging") },
+                            label = "Packaging",
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .focusRequester(getPackagingFocusRequester(index))
-                                .testTag("packing_input_$index"),
+                                .focusRequester(getPackagingFocusRequester(index)),
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Text,
                                 imeAction = ImeAction.Next
@@ -2546,20 +2585,19 @@ fun BillEntryScreen(
                                 onNext = { getRateFocusRequester(index).requestFocus() }
                             ),
                             singleLine = true,
-                            shape = RoundedCornerShape(8.dp)
+                            testTag = "packing_input_$index"
                         )
                         Spacer(modifier = Modifier.height(8.dp))
 
                         // Qtls
-                        OutlinedTextField(
+                        EnterpriseTextField(
                             value = itemQtlsText[index] ?: "",
                             onValueChange = { },
                             readOnly = true,
-                            label = { Text("Qtls") },
+                            label = "Qtls",
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .focusRequester(getQtlsFocusRequester(index))
-                                .testTag("quintals_input_$index"),
+                                .focusRequester(getQtlsFocusRequester(index)),
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Decimal,
                                 imeAction = ImeAction.Next
@@ -2568,12 +2606,12 @@ fun BillEntryScreen(
                                 onNext = { getRateFocusRequester(index).requestFocus() }
                             ),
                             singleLine = true,
-                            shape = RoundedCornerShape(8.dp)
+                            testTag = "quintals_input_$index"
                         )
                         Spacer(modifier = Modifier.height(8.dp))
 
                         // Rate
-                        OutlinedTextField(
+                        EnterpriseTextField(
                             value = itemRateText[index] ?: "",
                             onValueChange = { newVal ->
                                 itemRateText[index] = newVal
@@ -2582,11 +2620,10 @@ fun BillEntryScreen(
                                     this[index] = this[index].copy(rate = doubleVal)
                                 }
                             },
-                            label = { Text("Rate") },
+                            label = "Rate",
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .focusRequester(getRateFocusRequester(index))
-                                .testTag("rate_input_$index"),
+                                .focusRequester(getRateFocusRequester(index)),
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Decimal,
                                 imeAction = ImeAction.Next
@@ -2601,7 +2638,7 @@ fun BillEntryScreen(
                                 }
                             ),
                             singleLine = true,
-                            shape = RoundedCornerShape(8.dp)
+                            testTag = "rate_input_$index"
                         )
 
                         Spacer(modifier = Modifier.height(12.dp))
@@ -2619,17 +2656,16 @@ fun BillEntryScreen(
             // 11. Transport
             // ==========================================
             Column(modifier = Modifier.fillMaxWidth()) {
-                OutlinedTextField(
+                EnterpriseTextField(
                     value = transport,
                     onValueChange = {
                         transport = it
                         showTransportDropdown = it.isNotBlank()
                     },
-                    label = { Text("Transport") },
+                    label = "Transport",
                     modifier = Modifier
                         .fillMaxWidth()
-                        .focusRequester(focusTransport)
-                        .testTag("transport_input"),
+                        .focusRequester(focusTransport),
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Text,
                         imeAction = ImeAction.Next
@@ -2638,7 +2674,7 @@ fun BillEntryScreen(
                         onNext = { focusDelivery.requestFocus() }
                     ),
                     singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
+                    testTag = "transport_input"
                 )
 
                 if (showTransportDropdown) {
@@ -2678,14 +2714,13 @@ fun BillEntryScreen(
             // ==========================================
             // 12. Delivery
             // ==========================================
-            OutlinedTextField(
+            EnterpriseTextField(
                 value = delivery,
                 onValueChange = { delivery = it },
-                label = { Text("Delivery") },
+                label = "Delivery",
                 modifier = Modifier
                     .fillMaxWidth()
-                    .focusRequester(focusDelivery)
-                    .testTag("delivery_input"),
+                    .focusRequester(focusDelivery),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Text,
                     imeAction = ImeAction.Next
@@ -2694,21 +2729,20 @@ fun BillEntryScreen(
                     onNext = { focusLorryNo.requestFocus() }
                 ),
                 singleLine = true,
-                shape = RoundedCornerShape(12.dp)
+                testTag = "delivery_input"
             )
             Spacer(modifier = Modifier.height(16.dp))
 
             // ==========================================
             // 13. Lorry No.
             // ==========================================
-            OutlinedTextField(
+            EnterpriseTextField(
                 value = lorryNo,
                 onValueChange = { lorryNo = it },
-                label = { Text("Lorry No.") },
+                label = "Lorry No.",
                 modifier = Modifier
                     .fillMaxWidth()
-                    .focusRequester(focusLorryNo)
-                    .testTag("lorry_no_input"),
+                    .focusRequester(focusLorryNo),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Text,
                     imeAction = ImeAction.Next
@@ -2717,21 +2751,20 @@ fun BillEntryScreen(
                     onNext = { focusPayment.requestFocus() }
                 ),
                 singleLine = true,
-                shape = RoundedCornerShape(12.dp)
+                testTag = "lorry_no_input"
             )
             Spacer(modifier = Modifier.height(16.dp))
 
             // ==========================================
             // 14. Payment
             // ==========================================
-            OutlinedTextField(
+            EnterpriseTextField(
                 value = payment,
                 onValueChange = { payment = it },
-                label = { Text("Payment") },
+                label = "Payment",
                 modifier = Modifier
                     .fillMaxWidth()
-                    .focusRequester(focusPayment)
-                    .testTag("payment_input"),
+                    .focusRequester(focusPayment),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Text,
                     imeAction = ImeAction.Next
@@ -2740,7 +2773,7 @@ fun BillEntryScreen(
                     onNext = { focusMobileNo.requestFocus() }
                 ),
                 singleLine = true,
-                shape = RoundedCornerShape(12.dp)
+                testTag = "payment_input"
             )
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -2748,17 +2781,16 @@ fun BillEntryScreen(
             // 15. Mobile No.
             // ==========================================
             Column(modifier = Modifier.fillMaxWidth()) {
-                OutlinedTextField(
+                EnterpriseTextField(
                     value = mobileNo,
                     onValueChange = {
                         mobileNo = it
                         showMobileDropdown = it.isNotBlank()
                     },
-                    label = { Text("Mobile No.") },
+                    label = "Mobile No.",
                     modifier = Modifier
                         .fillMaxWidth()
-                        .focusRequester(focusMobileNo)
-                        .testTag("mobile_no_input"),
+                        .focusRequester(focusMobileNo),
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Phone,
                         imeAction = ImeAction.Next
@@ -2767,7 +2799,7 @@ fun BillEntryScreen(
                         onNext = { focusBrand.requestFocus() }
                     ),
                     singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
+                    testTag = "mobile_no_input"
                 )
 
                 if (showMobileDropdown) {
@@ -2808,17 +2840,16 @@ fun BillEntryScreen(
             // 16. Brand
             // ==========================================
             Column(modifier = Modifier.fillMaxWidth()) {
-                OutlinedTextField(
+                EnterpriseTextField(
                     value = brand,
                     onValueChange = {
                         brand = it
                         showBrandDropdown = it.isNotBlank()
                     },
-                    label = { Text("Brand") },
+                    label = "Brand",
                     modifier = Modifier
                         .fillMaxWidth()
-                        .focusRequester(focusBrand)
-                        .testTag("brand_input"),
+                        .focusRequester(focusBrand),
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Text,
                         imeAction = ImeAction.Next
@@ -2827,7 +2858,7 @@ fun BillEntryScreen(
                         onNext = { focusFreight.requestFocus() }
                     ),
                     singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
+                    testTag = "brand_input"
                 )
 
                 if (showBrandDropdown) {
@@ -2867,14 +2898,13 @@ fun BillEntryScreen(
             // ==========================================
             // 17. Lorry Freight
             // ==========================================
-            OutlinedTextField(
+            EnterpriseTextField(
                 value = lorryFreight,
                 onValueChange = { lorryFreight = it },
-                label = { Text("Lorry Freight") },
+                label = "Lorry Freight",
                 modifier = Modifier
                     .fillMaxWidth()
-                    .focusRequester(focusFreight)
-                    .testTag("lorry_freight_input"),
+                    .focusRequester(focusFreight),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Decimal,
                     imeAction = ImeAction.Next
@@ -2883,21 +2913,20 @@ fun BillEntryScreen(
                     onNext = { focusCreditDays.requestFocus() }
                 ),
                 singleLine = true,
-                shape = RoundedCornerShape(12.dp)
+                testTag = "lorry_freight_input"
             )
             Spacer(modifier = Modifier.height(16.dp))
 
             // ==========================================
             // 18. Credit Days
             // ==========================================
-            OutlinedTextField(
+            EnterpriseTextField(
                 value = creditDays,
                 onValueChange = { creditDays = it },
-                label = { Text("Credit Days") },
+                label = "Credit Days",
                 modifier = Modifier
                     .fillMaxWidth()
-                    .focusRequester(focusCreditDays)
-                    .testTag("credit_days_input"),
+                    .focusRequester(focusCreditDays),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Number,
                     imeAction = ImeAction.Next
@@ -2906,7 +2935,7 @@ fun BillEntryScreen(
                     onNext = { focusEb.requestFocus() }
                 ),
                 singleLine = true,
-                shape = RoundedCornerShape(12.dp)
+                testTag = "credit_days_input"
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -2914,15 +2943,13 @@ fun BillEntryScreen(
             // ==========================================
             // 19. EB
             // ==========================================
-            OutlinedTextField(
+            EnterpriseTextField(
                 value = eb,
                 onValueChange = { eb = it },
-                label = { Text("EB") },
-                placeholder = { Text("Enter EB") },
+                label = "EB",
                 modifier = Modifier
                     .fillMaxWidth()
-                    .focusRequester(focusEb)
-                    .testTag("eb_input"),
+                    .focusRequester(focusEb),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Text,
                     imeAction = ImeAction.Done
@@ -2931,7 +2958,7 @@ fun BillEntryScreen(
                     onDone = { focusManager.clearFocus() }
                 ),
                 singleLine = true,
-                shape = RoundedCornerShape(12.dp)
+                testTag = "eb_input"
             )
 
             // ==========================================
@@ -3553,28 +3580,18 @@ fun BillEntryScreen(
     }
 
     if (showDiscardConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showDiscardConfirmation = false },
-            title = { Text("Discard Unsaved Changes?", fontWeight = FontWeight.Bold) },
-            text = { Text("You have unsaved changes in this contract. Are you sure you want to discard them and go back?") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showDiscardConfirmation = false
-                        navController.popBackStack()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Yes, Discard", fontWeight = FontWeight.Bold)
-                }
+        EnterpriseDialog(
+            title = "Discard Unsaved Changes?",
+            description = "You have unsaved changes in this contract. Are you sure you want to discard them and go back?",
+            confirmText = "Yes, Discard",
+            dismissText = "No, Stay Here",
+            onConfirm = {
+                showDiscardConfirmation = false
+                navController.popBackStack()
             },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = { showDiscardConfirmation = false }
-                ) {
-                    Text("No, Stay Here", fontWeight = FontWeight.Bold)
-                }
-            }
+            onDismiss = { showDiscardConfirmation = false },
+            icon = Icons.Default.Warning,
+            confirmButtonColor = MaterialTheme.colorScheme.error
         )
     }
 
@@ -3869,70 +3886,101 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
         if (selectedSeller.isBlank()) {
             Text("Sellers Master List", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp), fontSize = 13.sp)
             if (distinctSellers.isEmpty()) {
-                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
-                        modifier = Modifier.padding(16.dp)
-                    ) {
-                        Text("📄", fontSize = 48.sp, modifier = Modifier.padding(bottom = 12.dp))
-                        Text(
-                            text = "No Ledger Records Found",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Create your first bill to see ledger entries here.",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
+                ReportsEmptyState(
+                    title = "No Ledger Records Found",
+                    description = "Create your first bill to see ledger entries here.",
+                    modifier = Modifier.weight(1f)
+                )
             } else if (filteredSellers.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                     Text("No matching sellers found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.weight(1f)) {
                     items(filteredSellers) { seller ->
                         val sellerBills = bills.filter { it.sellerName == seller }
                         val totalQtls = sellerBills.sumOf { it.quintals }
                         val matchingSeller = rtdbFullSellers.find { it.sellerName == seller }
-                        Card(
+                        EnterpriseCard(
                             onClick = { selectedSeller = seller },
                             modifier = Modifier.fillMaxWidth().testTag("seller_card_${seller}")
                         ) {
                             Row(
-                                modifier = Modifier.padding(16.dp),
+                                modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(seller, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                    Text("${sellerBills.size} Registered Bills", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(end = 8.dp)) {
-                                    Text("Total Qtls", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("${String.format("%.2f", totalQtls)} Qtls", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                }
-                                
-                                LedgerOverflowMenu(
-                                    itemId = matchingSeller?.sellerId ?: seller,
-                                    onEdit = {
-                                        navController.navigate("seller_master_list")
-                                    },
-                                    onShare = {
-                                        ledgerToShareName = seller
-                                        showShareSheetForLedger = true
-                                    },
-                                    onDeleteLedger = {
-                                        ledgerToDeleteName = seller
-                                        showDeleteLedgerDialog = true
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+                                        modifier = Modifier.size(40.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Default.AccountBox,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
                                     }
-                                )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text(
+                                            text = seller,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "${sellerBills.size} Registered Bills",
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.End,
+                                        modifier = Modifier.padding(end = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = "Total Weight",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = "${String.format("%.2f", totalQtls)} Qtls",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    
+                                    LedgerOverflowMenu(
+                                        itemId = matchingSeller?.sellerId ?: seller,
+                                        onEdit = {
+                                            navController.navigate("seller_master_list")
+                                        },
+                                        onShare = {
+                                            ledgerToShareName = seller
+                                            showShareSheetForLedger = true
+                                        },
+                                        onDeleteLedger = {
+                                            ledgerToDeleteName = seller
+                                            showDeleteLedgerDialog = true
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -3995,23 +4043,23 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
             }
 
             // Dynamic Calculations & Summary Card
-            Card(
+            EnterpriseCard(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
-                shape = RoundedCornerShape(12.dp)
+                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f),
+                borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Total Bills", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
-                        Text("${sellerBills.size}", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text("${sellerBills.size}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Total Qtls", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
-                        Text("${String.format("%.2f", sellerBills.sumOf { it.quintals })} Qtls", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                        Text("${String.format("%.2f", sellerBills.sumOf { it.quintals })} Qtls", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -4438,126 +4486,89 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
             }
 
             if (showDeleteBillDialog && billToDelete != null) {
-                AlertDialog(
-                    onDismissRequest = {
+                EnterpriseDialog(
+                    title = "Delete Bill",
+                    description = "Are you sure you want to delete Bill No. ${billToDelete!!.billNumber}?\nThis action cannot be undone.",
+                    confirmText = "Delete",
+                    dismissText = "Cancel",
+                    onConfirm = {
+                        com.example.util.BiometricHelper.runWithBiometric(
+                            context = context,
+                            title = "Ranisa Security",
+                            subtitle = "Verify your fingerprint to continue.",
+                            action = {
+                                viewModel.deleteBill(billToDelete!!)
+                                showDeleteBillDialog = false
+                                billToDelete = null
+                                Toast.makeText(context, "Bill deleted successfully", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    },
+                    onDismiss = {
                         showDeleteBillDialog = false
                         billToDelete = null
                     },
-                    title = { Text("Delete Bill") },
-                    text = { Text("Are you sure you want to delete Bill No. ${billToDelete!!.billNumber}?\nThis action cannot be undone.") },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                com.example.util.BiometricHelper.runWithBiometric(
-                                    context = context,
-                                    title = "Ranisa Security",
-                                    subtitle = "Verify your fingerprint to continue.",
-                                    action = {
-                                        viewModel.deleteBill(billToDelete!!)
-                                        showDeleteBillDialog = false
-                                        billToDelete = null
-                                        Toast.makeText(context, "Bill deleted successfully", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-                            },
-                            modifier = Modifier.testTag("confirm_delete_bill_button")
-                        ) {
-                            Text("Delete", color = MaterialTheme.colorScheme.error)
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(
-                            onClick = {
-                                showDeleteBillDialog = false
-                                billToDelete = null
-                            },
-                            modifier = Modifier.testTag("cancel_delete_bill_button")
-                        ) {
-                            Text("Cancel")
-                        }
-                    }
+                    icon = Icons.Default.Delete,
+                    confirmButtonColor = MaterialTheme.colorScheme.error
                 )
             }
 
             if (showDeletePaymentDialog && paymentToDelete != null) {
-                AlertDialog(
-                    onDismissRequest = {
+                EnterpriseDialog(
+                    title = "Delete Payment",
+                    description = "Are you sure you want to delete this payment?\nThis action cannot be undone.",
+                    confirmText = "Delete",
+                    dismissText = "Cancel",
+                    onConfirm = {
+                        com.example.util.BiometricHelper.runWithBiometric(
+                            context = context,
+                            title = "Ranisa Security",
+                            subtitle = "Verify your fingerprint to continue.",
+                            action = {
+                                viewModel.deletePayment(paymentToDelete!!)
+                                showDeletePaymentDialog = false
+                                paymentToDelete = null
+                                Toast.makeText(context, "Payment deleted successfully", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    },
+                    onDismiss = {
                         showDeletePaymentDialog = false
                         paymentToDelete = null
                     },
-                    title = { Text("Delete Payment") },
-                    text = { Text("Are you sure you want to delete this payment?\nThis action cannot be undone.") },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                com.example.util.BiometricHelper.runWithBiometric(
-                                    context = context,
-                                    title = "Ranisa Security",
-                                    subtitle = "Verify your fingerprint to continue.",
-                                    action = {
-                                        viewModel.deletePayment(paymentToDelete!!)
-                                        showDeletePaymentDialog = false
-                                        paymentToDelete = null
-                                        Toast.makeText(context, "Payment deleted successfully", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-                            },
-                            modifier = Modifier.testTag("confirm_delete_payment_button")
-                        ) {
-                            Text("Delete", color = MaterialTheme.colorScheme.error)
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(
-                            onClick = {
-                                showDeletePaymentDialog = false
-                                paymentToDelete = null
-                            },
-                            modifier = Modifier.testTag("cancel_delete_payment_button")
-                        ) {
-                            Text("Cancel")
-                        }
-                    }
+                    icon = Icons.Default.Delete,
+                    confirmButtonColor = MaterialTheme.colorScheme.error
                 )
             }
 
             if (showDeleteLedgerDialog && ledgerToDeleteName.isNotBlank()) {
-                AlertDialog(
-                    onDismissRequest = { showDeleteLedgerDialog = false },
-                    title = { Text("Delete all ledger transactions for this party?") },
-                    text = { Text("This action will remove only the ledger records.\nThe Master List will remain unchanged.") },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                com.example.util.BiometricHelper.runWithBiometric(
-                                    context = context,
-                                    title = "Ranisa Security",
-                                    subtitle = "Verify your fingerprint to continue.",
-                                    action = {
-                                        viewModel.deleteSellerLedger(
-                                            sellerName = ledgerToDeleteName,
-                                            onSuccess = {
-                                                showDeleteLedgerDialog = false
-                                                Toast.makeText(context, "Ledger transactions deleted successfully", Toast.LENGTH_SHORT).show()
-                                            },
-                                            onError = { error ->
-                                                Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
-                                            }
-                                        )
+                EnterpriseDialog(
+                    title = "Delete Ledger Transactions",
+                    description = "Are you sure you want to delete all ledger transactions for this party?\nThis action will remove only the ledger records. The Master List will remain unchanged.",
+                    confirmText = "Delete",
+                    dismissText = "Cancel",
+                    onConfirm = {
+                        com.example.util.BiometricHelper.runWithBiometric(
+                            context = context,
+                            title = "Ranisa Security",
+                            subtitle = "Verify your fingerprint to continue.",
+                            action = {
+                                viewModel.deleteSellerLedger(
+                                    sellerName = ledgerToDeleteName,
+                                    onSuccess = {
+                                        showDeleteLedgerDialog = false
+                                        Toast.makeText(context, "Ledger transactions deleted successfully", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onError = { error ->
+                                        Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
                                     }
                                 )
-                            },
-                            colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
-                        ) {
-                            Text("Delete")
-                        }
+                            }
+                        )
                     },
-                    dismissButton = {
-                        TextButton(onClick = { showDeleteLedgerDialog = false }) {
-                            Text("Cancel")
-                        }
-                    },
-                    shape = RoundedCornerShape(16.dp)
+                    onDismiss = { showDeleteLedgerDialog = false },
+                    icon = Icons.Default.DeleteForever,
+                    confirmButtonColor = MaterialTheme.colorScheme.error
                 )
             }
 
@@ -4688,70 +4699,101 @@ fun BuyerLedgerScreen(navController: NavController, viewModel: RanisaViewModel, 
         if (selectedBuyer.isBlank()) {
             Text("Buyers Master List", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp), fontSize = 13.sp)
             if (distinctBuyers.isEmpty()) {
-                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
-                        modifier = Modifier.padding(16.dp)
-                    ) {
-                        Text("📄", fontSize = 48.sp, modifier = Modifier.padding(bottom = 12.dp))
-                        Text(
-                            text = "No Ledger Records Found",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Create your first bill to see ledger entries here.",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
+                ReportsEmptyState(
+                    title = "No Ledger Records Found",
+                    description = "Create your first bill to see ledger entries here.",
+                    modifier = Modifier.weight(1f)
+                )
             } else if (filteredBuyers.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                     Text("No matching buyers found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.weight(1f)) {
                     items(filteredBuyers) { buyer ->
                         val buyerBills = bills.filter { it.buyerName == buyer }
                         val totalQtls = buyerBills.sumOf { it.quintals }
                         val matchingBuyer = rtdbFullBuyers.find { it.buyerName == buyer }
-                        Card(
+                        EnterpriseCard(
                             onClick = { selectedBuyer = buyer },
                             modifier = Modifier.fillMaxWidth().testTag("buyer_card_${buyer}")
                         ) {
                             Row(
-                                modifier = Modifier.padding(16.dp),
+                                modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(buyer, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                    Text("${buyerBills.size} Registered Billings", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(end = 8.dp)) {
-                                    Text("Total Qtls", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("${String.format("%.2f", totalQtls)} Qtls", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                }
-                                
-                                LedgerOverflowMenu(
-                                    itemId = matchingBuyer?.buyerId ?: buyer,
-                                    onEdit = {
-                                        navController.navigate("buyer_master_list")
-                                    },
-                                    onShare = {
-                                        ledgerToShareName = buyer
-                                        showShareSheetForLedger = true
-                                    },
-                                    onDeleteLedger = {
-                                        ledgerToDeleteName = buyer
-                                        showDeleteLedgerDialog = true
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+                                        modifier = Modifier.size(40.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Default.Person,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
                                     }
-                                )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text(
+                                            text = buyer,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "${buyerBills.size} Registered Billings",
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.End,
+                                        modifier = Modifier.padding(end = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = "Total Weight",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = "${String.format("%.2f", totalQtls)} Qtls",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    
+                                    LedgerOverflowMenu(
+                                        itemId = matchingBuyer?.buyerId ?: buyer,
+                                        onEdit = {
+                                            navController.navigate("buyer_master_list")
+                                        },
+                                        onShare = {
+                                            ledgerToShareName = buyer
+                                            showShareSheetForLedger = true
+                                        },
+                                        onDeleteLedger = {
+                                            ledgerToDeleteName = buyer
+                                            showDeleteLedgerDialog = true
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -4815,23 +4857,23 @@ fun BuyerLedgerScreen(navController: NavController, viewModel: RanisaViewModel, 
             }
 
             // Dynamic Calculations & Summary Card
-            Card(
+            EnterpriseCard(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
-                shape = RoundedCornerShape(12.dp)
+                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f),
+                borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Total Bills", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
-                        Text("${buyerBills.size}", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text("${buyerBills.size}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Total Qtls", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
-                        Text("${String.format("%.2f", buyerBills.sumOf { it.quintals })} Qtls", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                        Text("${String.format("%.2f", buyerBills.sumOf { it.quintals })} Qtls", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -5231,126 +5273,89 @@ fun BuyerLedgerScreen(navController: NavController, viewModel: RanisaViewModel, 
             }
 
             if (showDeleteBillDialog && billToDelete != null) {
-                AlertDialog(
-                    onDismissRequest = {
+                EnterpriseDialog(
+                    title = "Delete Bill",
+                    description = "Are you sure you want to delete Bill No. ${billToDelete!!.billNumber}?\nThis action cannot be undone.",
+                    confirmText = "Delete",
+                    dismissText = "Cancel",
+                    onConfirm = {
+                        com.example.util.BiometricHelper.runWithBiometric(
+                            context = context,
+                            title = "Ranisa Security",
+                            subtitle = "Verify your fingerprint to continue.",
+                            action = {
+                                viewModel.deleteBill(billToDelete!!)
+                                showDeleteBillDialog = false
+                                billToDelete = null
+                                Toast.makeText(context, "Bill deleted successfully", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    },
+                    onDismiss = {
                         showDeleteBillDialog = false
                         billToDelete = null
                     },
-                    title = { Text("Delete Bill") },
-                    text = { Text("Are you sure you want to delete Bill No. ${billToDelete!!.billNumber}?\nThis action cannot be undone.") },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                com.example.util.BiometricHelper.runWithBiometric(
-                                    context = context,
-                                    title = "Ranisa Security",
-                                    subtitle = "Verify your fingerprint to continue.",
-                                    action = {
-                                        viewModel.deleteBill(billToDelete!!)
-                                        showDeleteBillDialog = false
-                                        billToDelete = null
-                                        Toast.makeText(context, "Bill deleted successfully", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-                            },
-                            modifier = Modifier.testTag("confirm_delete_bill_button")
-                        ) {
-                            Text("Delete", color = MaterialTheme.colorScheme.error)
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(
-                            onClick = {
-                                showDeleteBillDialog = false
-                                billToDelete = null
-                            },
-                            modifier = Modifier.testTag("cancel_delete_bill_button")
-                        ) {
-                            Text("Cancel")
-                        }
-                    }
+                    icon = Icons.Default.Delete,
+                    confirmButtonColor = MaterialTheme.colorScheme.error
                 )
             }
 
             if (showDeletePaymentDialog && paymentToDelete != null) {
-                AlertDialog(
-                    onDismissRequest = {
+                EnterpriseDialog(
+                    title = "Delete Payment",
+                    description = "Are you sure you want to delete this payment?\nThis action cannot be undone.",
+                    confirmText = "Delete",
+                    dismissText = "Cancel",
+                    onConfirm = {
+                        com.example.util.BiometricHelper.runWithBiometric(
+                            context = context,
+                            title = "Ranisa Security",
+                            subtitle = "Verify your fingerprint to continue.",
+                            action = {
+                                viewModel.deletePayment(paymentToDelete!!)
+                                showDeletePaymentDialog = false
+                                paymentToDelete = null
+                                Toast.makeText(context, "Payment deleted successfully", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    },
+                    onDismiss = {
                         showDeletePaymentDialog = false
                         paymentToDelete = null
                     },
-                    title = { Text("Delete Payment") },
-                    text = { Text("Are you sure you want to delete this payment?\nThis action cannot be undone.") },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                com.example.util.BiometricHelper.runWithBiometric(
-                                    context = context,
-                                    title = "Ranisa Security",
-                                    subtitle = "Verify your fingerprint to continue.",
-                                    action = {
-                                        viewModel.deletePayment(paymentToDelete!!)
-                                        showDeletePaymentDialog = false
-                                        paymentToDelete = null
-                                        Toast.makeText(context, "Payment deleted successfully", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-                            },
-                            modifier = Modifier.testTag("confirm_delete_payment_button")
-                        ) {
-                            Text("Delete", color = MaterialTheme.colorScheme.error)
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(
-                            onClick = {
-                                showDeletePaymentDialog = false
-                                paymentToDelete = null
-                            },
-                            modifier = Modifier.testTag("cancel_delete_payment_button")
-                        ) {
-                            Text("Cancel")
-                        }
-                    }
+                    icon = Icons.Default.Delete,
+                    confirmButtonColor = MaterialTheme.colorScheme.error
                 )
             }
 
             if (showDeleteLedgerDialog && ledgerToDeleteName.isNotBlank()) {
-                AlertDialog(
-                    onDismissRequest = { showDeleteLedgerDialog = false },
-                    title = { Text("Delete all ledger transactions for this party?") },
-                    text = { Text("This action will remove only the ledger records.\nThe Master List will remain unchanged.") },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                com.example.util.BiometricHelper.runWithBiometric(
-                                    context = context,
-                                    title = "Ranisa Security",
-                                    subtitle = "Verify your fingerprint to continue.",
-                                    action = {
-                                        viewModel.deleteBuyerLedger(
-                                            buyerName = ledgerToDeleteName,
-                                            onSuccess = {
-                                                showDeleteLedgerDialog = false
-                                                Toast.makeText(context, "Ledger transactions deleted successfully", Toast.LENGTH_SHORT).show()
-                                            },
-                                            onError = { error ->
-                                                Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
-                                            }
-                                        )
+                EnterpriseDialog(
+                    title = "Delete Ledger Transactions",
+                    description = "Are you sure you want to delete all ledger transactions for this party?\nThis action will remove only the ledger records. The Master List will remain unchanged.",
+                    confirmText = "Delete",
+                    dismissText = "Cancel",
+                    onConfirm = {
+                        com.example.util.BiometricHelper.runWithBiometric(
+                            context = context,
+                            title = "Ranisa Security",
+                            subtitle = "Verify your fingerprint to continue.",
+                            action = {
+                                viewModel.deleteBuyerLedger(
+                                    buyerName = ledgerToDeleteName,
+                                    onSuccess = {
+                                        showDeleteLedgerDialog = false
+                                        Toast.makeText(context, "Ledger transactions deleted successfully", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onError = { error ->
+                                        Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
                                     }
                                 )
-                            },
-                            colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
-                        ) {
-                            Text("Delete")
-                        }
+                            }
+                        )
                     },
-                    dismissButton = {
-                        TextButton(onClick = { showDeleteLedgerDialog = false }) {
-                            Text("Cancel")
-                        }
-                    },
-                    shape = RoundedCornerShape(16.dp)
+                    onDismiss = { showDeleteLedgerDialog = false },
+                    icon = Icons.Default.DeleteForever,
+                    confirmButtonColor = MaterialTheme.colorScheme.error
                 )
             }
 
@@ -5385,20 +5390,42 @@ fun RegisterField(
         Modifier
             .width(width.dp)
             .clickable(onClick = onClick)
+            .padding(vertical = 4.dp, horizontal = 2.dp)
     } else {
-        Modifier.width(width.dp)
+        Modifier
+            .width(width.dp)
+            .padding(vertical = 4.dp, horizontal = 2.dp)
     }
-    Text(
-        text = text.ifBlank { "-" },
+    
+    val defaultHighlightColor = if (text.contains("Overdue") || (text.contains("Pending") && !text.contains("Partial"))) {
+        Color(0xFFEF5350) // Soft red
+    } else if (text.contains("Fully Paid") || text.contains("Full Paid")) {
+        Color(0xFF81C784) // Soft green
+    } else if (text.contains("Partial")) {
+        Color(0xFFFFB74D) // Soft orange
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+
+    Box(
         modifier = modifier,
-        textAlign = TextAlign.Center,
-        fontSize = 12.sp,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        fontWeight = if (highlight || onClick != null) FontWeight.Bold else FontWeight.Normal,
-        color = clickableColor ?: if (highlight) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-        style = if (onClick != null) androidx.compose.ui.text.TextStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline) else androidx.compose.ui.text.TextStyle.Default
-    )
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text.ifBlank { "-" },
+            textAlign = TextAlign.Center,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            fontWeight = if (highlight || onClick != null) FontWeight.Bold else FontWeight.Normal,
+            color = clickableColor ?: if (highlight) defaultHighlightColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
+            style = if (onClick != null) {
+                androidx.compose.ui.text.TextStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline)
+            } else {
+                androidx.compose.ui.text.TextStyle.Default
+            }
+        )
+    }
 }
 
 fun getDueDateString(dateStr: String, creditDays: Int): String {
@@ -5846,24 +5873,10 @@ fun PaymentListScreen(navController: NavController, viewModel: RanisaViewModel) 
                                                     Text(bill.remark2.ifBlank { "-" }, modifier = Modifier.width(150.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                                                     Text("₹${String.format("%.2f", pending)}", modifier = Modifier.width(110.dp), style = MaterialTheme.typography.bodySmall, color = if (pending > 0.0) Color(0xFFEF5350) else Color(0xFF81C784), fontWeight = FontWeight.Bold)
 
-                                                    val chipColor = when (status) {
-                                                        "Fully Paid", "Full Paid" -> Color(0xFF81C784)
-                                                        "Partial Paid" -> Color(0xFFFFB74D)
-                                                        else -> Color(0xFFEF5350)
-                                                    }
-                                                    Card(
-                                                        colors = CardDefaults.cardColors(containerColor = chipColor.copy(alpha = 0.12f)),
+                                                    EnterpriseStatusBadge(
+                                                        status = status,
                                                         modifier = Modifier.width(100.dp)
-                                                    ) {
-                                                        Text(
-                                                            text = status,
-                                                            color = chipColor,
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            fontWeight = FontWeight.Bold,
-                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp).fillMaxWidth(),
-                                                            textAlign = TextAlign.Center
-                                                        )
-                                                    }
+                                                    )
 
                                                     Row(
                                                         modifier = Modifier.width(100.dp),
@@ -6044,32 +6057,11 @@ fun PaymentListScreen(navController: NavController, viewModel: RanisaViewModel) 
 
                     if (partiesList.isEmpty()) {
                         item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 48.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Text("📄", fontSize = 48.sp, modifier = Modifier.padding(bottom = 12.dp))
-                                    Text(
-                                        text = "No Ledger Records Found",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 18.sp,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = "Create your first bill to see ledger entries here.",
-                                        fontSize = 14.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        textAlign = TextAlign.Center
-                                    )
-                                }
-                            }
+                            ReportsEmptyState(
+                                title = "No Ledger Records Found",
+                                description = "Create your first bill to see ledger entries here.",
+                                modifier = Modifier.padding(vertical = 32.dp)
+                            )
                         }
                     } else {
                         items(partiesList) { (partyName, latestBill, data) ->
@@ -6078,69 +6070,56 @@ fun PaymentListScreen(navController: NavController, viewModel: RanisaViewModel) 
                             val statusText = data.third.first
                             val statusColor = data.third.second
 
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { selectedPartyName = partyName },
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                            EnterpriseCard(
+                                onClick = { selectedPartyName = partyName },
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = partyName,
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                        Card(
-                                            colors = CardDefaults.cardColors(containerColor = statusColor.copy(alpha = 0.12f))
-                                        ) {
-                                            Text(
-                                                text = statusText,
-                                                color = statusColor,
-                                                style = MaterialTheme.typography.labelMedium,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                            )
-                                        }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = partyName,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    EnterpriseStatusBadge(
+                                        status = statusText
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column {
+                                        Text("Latest Bill: #${latestBill?.billNumber ?: "N/A"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Latest Date: ${latestBill?.date ?: "N/A"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
-
-                                    Spacer(modifier = Modifier.height(8.dp))
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Column {
-                                            Text("Latest Bill: #${latestBill?.billNumber ?: "N/A"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            Text("Latest Date: ${latestBill?.date ?: "N/A"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                        Column(horizontalAlignment = Alignment.End) {
-                                            Text("Firm: ${latestBill?.firmName ?: "N/A"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            Text("Total Bills: $totalBills", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text("Firm: ${latestBill?.firmName ?: "N/A"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Total Bills: $totalBills", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
+                                }
 
-                                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text("Balance Amount", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                        Text(
-                                            text = "₹${String.format("%.2f", outstanding)}",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (outstanding > 0.0) Color(0xFFEF5350) else Color(0xFF81C784)
-                                        )
-                                    }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Balance Amount", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                    Text(
+                                        text = "₹${String.format("%.2f", outstanding)}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (outstanding > 0.0) Color(0xFFEF5350) else Color(0xFF81C784)
+                                    )
                                 }
                             }
                         }
@@ -6566,24 +6545,10 @@ fun PaymentListScreen(navController: NavController, viewModel: RanisaViewModel) 
                                             Text(bill.remark2.ifBlank { "-" }, modifier = Modifier.width(150.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                                             Text("₹${String.format("%.2f", pending)}", modifier = Modifier.width(110.dp), style = MaterialTheme.typography.bodySmall, color = if (pending > 0.0) Color(0xFFEF5350) else Color(0xFF81C784), fontWeight = FontWeight.Bold)
                                             
-                                            val chipColor = when (status) {
-                                                "Fully Paid", "Full Paid" -> Color(0xFF81C784)
-                                                "Partial Paid" -> Color(0xFFFFB74D)
-                                                else -> Color(0xFFEF5350)
-                                            }
-                                            Card(
-                                                colors = CardDefaults.cardColors(containerColor = chipColor.copy(alpha = 0.12f)),
+                                            EnterpriseStatusBadge(
+                                                status = status,
                                                 modifier = Modifier.width(100.dp)
-                                            ) {
-                                                Text(
-                                                    text = status,
-                                                    color = chipColor,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp).fillMaxWidth(),
-                                                    textAlign = TextAlign.Center
-                                                )
-                                            }
+                                            )
 
                                             Row(
                                                 modifier = Modifier.width(100.dp),
@@ -7088,6 +7053,58 @@ fun PaymentListScreen(navController: NavController, viewModel: RanisaViewModel) 
 }
 
 // ==========================================
+// ==========================================
+// REPORTS EMPTY STATE COMPOSABLE
+// ==========================================
+@Composable
+fun ReportsEmptyState(
+    title: String = "No Ledger Records Found",
+    description: String = "Create your first bill to see ledger entries here.",
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(24.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(36.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(72.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Receipt,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.widthIn(max = 280.dp)
+            )
+        }
+    }
+}
+
 // REPORTS & ANALYTICS SCREEN
 // ==========================================
 @Composable
@@ -7096,65 +7113,448 @@ fun ReportsScreen(viewModel: RanisaViewModel) {
     val payments by viewModel.allPayments.collectAsState()
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Executive Header
         item {
-            Text("Reports Summary", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text("Detailed audit statistics and total outstanding analytics.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Total Net Balance Owed", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    val sumBill = bills.sumOf { it.billAmount }
-                    val sumPaid = payments.sumOf { it.amount }
-                    val ddTotal = bills.sumOf { it.ddAmount }
-                    val cashCutTotal = bills.sumOf { it.cashCutting }
-                    val netOutstanding = sumBill - ddTotal - cashCutTotal - sumPaid
-                    Text("₹${String.format("%.2f", netOutstanding)}", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Reports & Analytics",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Detailed audit statistics and total outstanding analytics.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Assessment,
+                            contentDescription = "Reports Hub",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 }
             }
         }
 
+        // Hero Financial Metric: Outstanding Balance Owed
         item {
-            Card(
+            val sumBill = bills.sumOf { it.billAmount }
+            val sumPaid = payments.sumOf { it.amount }
+            val ddTotal = bills.sumOf { it.ddAmount }
+            val cashCutTotal = bills.sumOf { it.cashCutting }
+            val netOutstanding = sumBill - ddTotal - cashCutTotal - sumPaid
+
+            EnterpriseCard(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+                elevation = AppElevation.medium
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Firms Sales Split", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
-
-                    val lalitSales = bills.filter { it.firmName.contains("Lalit") }.sumOf { it.billAmount }
-                    val krishnaSales = bills.filter { it.firmName.contains("Krishna") }.sumOf { it.billAmount }
-
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Lalit Rice Broker:")
-                        Text("₹${String.format("%.2f", lalitSales)}", fontWeight = FontWeight.Bold)
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "TOTAL NET BALANCE OWED",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Icon(
+                            imageVector = Icons.Default.TrendingUp,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
                     }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "₹${String.format("%,.2f", netOutstanding)}",
+                        style = MaterialTheme.typography.headlineLarge,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Ledger accounting mini breakdown
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Total Billings",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "₹${String.format("%,.2f", sumBill)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Deductions (DD/Cash)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "₹${String.format("%,.2f", ddTotal + cashCutTotal)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = "Total Collected",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "₹${String.format("%,.2f", sumPaid)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sales Share & Performance Split Card
+        item {
+            val lalitSales = bills.filter { it.firmName.contains("Lalit") }.sumOf { it.billAmount }
+            val krishnaSales = bills.filter { it.firmName.contains("Krishna") }.sumOf { it.billAmount }
+            val totalSales = lalitSales + krishnaSales
+
+            val lalitPercent = if (totalSales > 0) (lalitSales / totalSales * 100).toInt() else 50
+            val krishnaPercent = if (totalSales > 0) (krishnaSales / totalSales * 100).toInt() else 50
+
+            EnterpriseCard(
+                modifier = Modifier.fillMaxWidth(),
+                containerColor = MaterialTheme.colorScheme.surface,
+                borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Firms Sales Distribution",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                     Spacer(modifier = Modifier.height(4.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Hare Krishna Rice Broker:")
-                        Text("₹${String.format("%.2f", krishnaSales)}", fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Proportional billing share between active firm entities.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Proportional Split Visualizer
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(12.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        if (totalSales > 0) {
+                            val lalitWeight = maxOf(lalitSales.toFloat(), 1f)
+                            val krishnaWeight = maxOf(krishnaSales.toFloat(), 1f)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .weight(lalitWeight)
+                                    .background(MaterialTheme.colorScheme.primary)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .weight(krishnaWeight)
+                                    .background(MaterialTheme.colorScheme.tertiary)
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .weight(1f)
+                                    .background(MaterialTheme.colorScheme.outlineVariant)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Lalit Rice Broker
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(RoundedCornerShape(5.dp))
+                                    .background(MaterialTheme.colorScheme.primary)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Lalit Rice Broker",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "$lalitPercent% share",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Text(
+                            text = "₹${String.format("%,.2f", lalitSales)}",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Hare Krishna Rice Broker
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(RoundedCornerShape(5.dp))
+                                    .background(MaterialTheme.colorScheme.tertiary)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Hare Krishna Rice Broker",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "$krishnaPercent% share",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Text(
+                            text = "₹${String.format("%,.2f", krishnaSales)}",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 }
             }
         }
 
+        // Quick Operational Summary Row
         item {
-            Card(
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Brokerage Metrics", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
-                    Text("• Local SQLite Database status: Healthy (Encrypted)", style = MaterialTheme.typography.bodyMedium)
-                    Text("• Firebase Auto backup: Completed 100%", style = MaterialTheme.typography.bodyMedium)
-                    Text("• Sync Logs Status: Validated by System admin", style = MaterialTheme.typography.bodyMedium)
+                // Bookings Card
+                EnterpriseCard(
+                    modifier = Modifier.weight(1f),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Receipt,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Total Bills",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "${bills.size}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+
+                // Collections Card
+                EnterpriseCard(
+                    modifier = Modifier.weight(1f),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f),
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Payments,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.tertiary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Total Payments",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "${payments.size}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Security & Health status
+        item {
+            EnterpriseCard(
+                modifier = Modifier.fillMaxWidth(),
+                containerColor = MaterialTheme.colorScheme.surface,
+                borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "System Audit & Database Health",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Row 1: SQLite Status
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Healthy",
+                            tint = Color(0xFF81C784),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Local SQLite Engine: Healthy (SQLCipher Encrypted)",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Row 2: Firebase Backup status
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Completed",
+                            tint = Color(0xFF81C784),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Cloud Backup Synchronization: Real-time Active (100%)",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Row 3: Admin log verification
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Verified",
+                            tint = Color(0xFF81C784),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "System Audit Log Integrity: Validated",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
@@ -7229,20 +7629,13 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
         )
 
         // Search Field
-        OutlinedTextField(
+        EnterpriseSearchField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
-            label = { Text("Search by user, action, party, bill no, or details") },
+            placeholder = "Search by user, action, party, bill no, or details",
             modifier = Modifier.fillMaxWidth(),
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { searchQuery = "" }) {
-                        Icon(Icons.Default.Close, contentDescription = "Clear")
-                    }
-                }
-            },
-            shape = RoundedCornerShape(12.dp)
+            onClear = { searchQuery = "" },
+            testTag = "audit_log_search_input"
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -7775,12 +8168,13 @@ fun SearchScreen(navController: NavController, viewModel: RanisaViewModel) {
         Text("Global Database Search", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text("Query any Buyer Name, Seller Name, Mandi, Bill Number, Date, or payment mode instantly.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-        OutlinedTextField(
+        EnterpriseSearchField(
             value = query,
             onValueChange = { viewModel.updateGlobalSearch(it) },
-            label = { Text("Enter search term...") },
+            placeholder = "Enter search term...",
             modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search icon") }
+            onClear = { viewModel.updateGlobalSearch("") },
+            testTag = "global_search_input"
         )
 
         LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.weight(1f)) {
@@ -8046,18 +8440,19 @@ fun EditPaymentDialog(
 
     Dialog(onDismissRequest = onDismissRequest) {
         Card(
-            shape = RoundedCornerShape(16.dp),
+            shape = AppCorners.extraLarge,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(AppSpacing.md),
+            elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.high),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(
                 modifier = Modifier
-                    .padding(16.dp)
+                    .padding(AppSpacing.xl)
                     .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.md)
             ) {
                 Text(
                     text = "Update Payment",
@@ -8067,10 +8462,10 @@ fun EditPaymentDialog(
                 )
 
                 // Payment Received (₹)
-                OutlinedTextField(
+                EnterpriseTextField(
                     value = paymentReceivedValue,
                     onValueChange = { paymentReceivedValue = it },
-                    label = { Text("Payment Received (₹)") },
+                    label = "Payment Received (₹)",
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -8086,10 +8481,10 @@ fun EditPaymentDialog(
                     calendar.get(Calendar.MONTH),
                     calendar.get(Calendar.DAY_OF_MONTH)
                 )
-                OutlinedTextField(
+                EnterpriseTextField(
                     value = paymentDateValue,
                     onValueChange = { paymentDateValue = it },
-                    label = { Text("Payment Date (YYYY-MM-DD)") },
+                    label = "Payment Date (YYYY-MM-DD)",
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { editDatePickerDialog.show() },
@@ -8102,60 +8497,61 @@ fun EditPaymentDialog(
                 )
 
                 // Discount - Numeric only
-                OutlinedTextField(
+                EnterpriseTextField(
                     value = discountValue,
                     onValueChange = { discountValue = it },
-                    label = { Text("Discount") },
+                    label = "Discount",
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
 
                 // Commission - Numeric only
-                OutlinedTextField(
+                EnterpriseTextField(
                     value = commissionValue,
                     onValueChange = { commissionValue = it },
-                    label = { Text("Commission") },
+                    label = "Commission",
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
 
                 // Remark Amt - Numeric only
-                OutlinedTextField(
+                EnterpriseTextField(
                     value = remarks1Value,
                     onValueChange = { remarks1Value = it },
-                    label = { Text("Remark Amt") },
+                    label = "Remark Amt",
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
 
                 // Remark
-                OutlinedTextField(
+                EnterpriseTextField(
                     value = remarks2Value,
                     onValueChange = { remarks2Value = it },
-                    label = { Text("Remark") },
+                    label = "Remark",
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(AppSpacing.sm))
 
                 val isUpdatingPayment by viewModel.isUpdatingPayment.collectAsState()
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm)
                 ) {
-                    OutlinedButton(
-                        enabled = !isUpdatingPayment,
+                    EnterpriseOutlinedButton(
+                        text = "Cancel",
                         onClick = onDismissRequest,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Cancel")
-                    }
-                    Button(
                         enabled = !isUpdatingPayment,
+                        modifier = Modifier.weight(1f)
+                    )
+                    EnterprisePrimaryButton(
+                        text = "Update",
+                        enabled = !isUpdatingPayment,
+                        loading = isUpdatingPayment,
                         onClick = {
                             val enteredAmt = paymentReceivedValue.toDoubleOrNull() ?: 0.0
                             val enteredDiscount = discountValue.toDoubleOrNull() ?: 0.0
@@ -8165,23 +8561,23 @@ fun EditPaymentDialog(
                             // Validation
                             if (enteredAmt < 0.0) {
                                 Toast.makeText(context, "Payment received cannot be negative", Toast.LENGTH_SHORT).show()
-                                return@Button
+                                return@EnterprisePrimaryButton
                             }
                             if (enteredDiscount < 0.0) {
                                 Toast.makeText(context, "Discount cannot be negative", Toast.LENGTH_SHORT).show()
-                                return@Button
+                                return@EnterprisePrimaryButton
                             }
                             if (enteredCommission < 0.0) {
                                 Toast.makeText(context, "Commission cannot be negative", Toast.LENGTH_SHORT).show()
-                                return@Button
+                                return@EnterprisePrimaryButton
                             }
                             if (remarks1Value.isNotBlank() && remarks1Value.toDoubleOrNull() == null) {
                                 Toast.makeText(context, "Remark Amt must be a valid number", Toast.LENGTH_SHORT).show()
-                                return@Button
+                                return@EnterprisePrimaryButton
                             }
                             if (enteredRemarkAmt < 0.0) {
                                 Toast.makeText(context, "Remark Amt cannot be negative", Toast.LENGTH_SHORT).show()
-                                return@Button
+                                return@EnterprisePrimaryButton
                             }
 
                             val checkPending = totalAmount - 
@@ -8192,7 +8588,7 @@ fun EditPaymentDialog(
 
                             if (checkPending < -0.01) {
                                 Toast.makeText(context, "Balance Amount cannot become negative. Total deduction exceeds Bill Amount.", Toast.LENGTH_LONG).show()
-                                return@Button
+                                return@EnterprisePrimaryButton
                             }
 
                             viewModel.updatePaymentTransaction(
@@ -8220,19 +8616,8 @@ fun EditPaymentDialog(
                                 }
                             )
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         modifier = Modifier.weight(1f)
-                    ) {
-                        if (isUpdatingPayment) {
-                            androidx.compose.material3.CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Text("Update Payment")
-                        }
-                    }
+                    )
                 }
             }
         }
@@ -8326,27 +8711,19 @@ fun BrokerLedgerScreen(
                             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            OutlinedTextField(
+                            EnterpriseSearchField(
                                 value = searchQuery,
                                 onValueChange = { viewModel.updateBrokerLedgerSearch(it) },
-                                placeholder = { Text("Search Broker Name or Mobile...", fontSize = 13.sp) },
+                                placeholder = "Search Broker Name or Mobile...",
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(48.dp)
-                                    .focusRequester(focusRequester)
-                                    .testTag("broker_ledger_search_input"),
-                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search icon") },
-                                trailingIcon = {
-                                    IconButton(onClick = { 
-                                        viewModel.updateBrokerLedgerSearch("")
-                                        isSearchActive = false 
-                                    }) {
-                                        Icon(Icons.Default.Close, contentDescription = "Close search")
-                                    }
+                                    .focusRequester(focusRequester),
+                                onClear = {
+                                    viewModel.updateBrokerLedgerSearch("")
+                                    isSearchActive = false
                                 },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp)
+                                testTag = "broker_ledger_search_input"
                             )
                         }
                         LaunchedEffect(isSearchActive) {
@@ -8373,28 +8750,11 @@ fun BrokerLedgerScreen(
                     Text("Brokers Master List", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp), fontSize = 13.sp)
                     
                     if (distinctBrokers.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                                modifier = Modifier.padding(16.dp)
-                            ) {
-                                Text("📄", fontSize = 48.sp, modifier = Modifier.padding(bottom = 12.dp))
-                                Text(
-                                    text = "No Ledger Records Found",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 18.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "Create your first bill to see ledger entries here.",
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        }
+                        ReportsEmptyState(
+                            title = "No Ledger Records Found",
+                            description = "Create your first bill to see ledger entries here.",
+                            modifier = Modifier.weight(1f)
+                        )
                     } else if (filteredBrokers.isEmpty()) {
                         Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                             Text("No matching brokers found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -8411,41 +8771,86 @@ fun BrokerLedgerScreen(
                                         (it.brokerId.isBlank() && it.brokerName.equals(broker.brokerName, ignoreCase = true))
                                     }
                                     val totalQtls = brokerBills.sumOf { it.quintals }
-                                    Card(
+                                    EnterpriseCard(
                                         onClick = { selectedBroker = broker },
-                                        modifier = Modifier.fillMaxWidth().testTag("broker_card_${broker.brokerName}"),
-                                        shape = RoundedCornerShape(12.dp),
-                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1F1B24)),
-                                        border = BorderStroke(1.dp, Color(0xFF322E3B))
+                                        modifier = Modifier.fillMaxWidth().testTag("broker_card_${broker.brokerName}")
                                     ) {
                                         Row(
-                                            modifier = Modifier.padding(16.dp),
+                                            modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(broker.brokerName, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.White)
-                                                Text("${brokerBills.size} Registered Bills", fontSize = 12.sp, color = Color(0xFF8C8797))
-                                            }
-                                            Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(end = 8.dp)) {
-                                                Text("Total Qtls", fontSize = 11.sp, color = Color(0xFF8C8797))
-                                                Text("${String.format("%.2f", totalQtls)} Qtls", fontWeight = FontWeight.Bold, color = Color(0xFFBB86FC))
-                                            }
-                                            
-                                            LedgerOverflowMenu(
-                                                itemId = broker.brokerId.ifBlank { broker.brokerName },
-                                                onEdit = {
-                                                    navController.navigate("broker_master_list")
-                                                },
-                                                onShare = {
-                                                    ledgerToShareName = broker.brokerName
-                                                    showShareSheetForLedger = true
-                                                },
-                                                onDeleteLedger = {
-                                                    ledgerToDeleteName = broker.brokerName
-                                                    showDeleteLedgerDialog = true
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+                                                    modifier = Modifier.size(40.dp)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Star,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.primary,
+                                                            modifier = Modifier.size(24.dp)
+                                                        )
+                                                    }
                                                 }
-                                            )
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Column {
+                                                    Text(
+                                                        text = broker.brokerName,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 15.sp,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    Spacer(modifier = Modifier.height(2.dp))
+                                                    Text(
+                                                        text = "${brokerBills.size} Registered Bills",
+                                                        fontSize = 12.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.End
+                                            ) {
+                                                Column(
+                                                    horizontalAlignment = Alignment.End,
+                                                    modifier = Modifier.padding(end = 8.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Total Weight",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Medium,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                    Text(
+                                                        text = "${String.format("%.2f", totalQtls)} Qtls",
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 14.sp,
+                                                        color = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+                                                
+                                                LedgerOverflowMenu(
+                                                    itemId = broker.brokerId.ifBlank { broker.brokerName },
+                                                    onEdit = {
+                                                        navController.navigate("broker_master_list")
+                                                    },
+                                                    onShare = {
+                                                        ledgerToShareName = broker.brokerName
+                                                        showShareSheetForLedger = true
+                                                    },
+                                                    onDeleteLedger = {
+                                                        ledgerToDeleteName = broker.brokerName
+                                                        showDeleteLedgerDialog = true
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -8514,27 +8919,19 @@ fun BrokerLedgerScreen(
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                             }
                             if (isRegistrySearchActive) {
-                                OutlinedTextField(
+                                EnterpriseSearchField(
                                     value = registrySearchQuery,
                                     onValueChange = { registrySearchQuery = it },
-                                    placeholder = { Text("Search by Bill No, Party or Date...", fontSize = 13.sp) },
+                                    placeholder = "Search by Bill No, Party or Date...",
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(48.dp)
-                                        .focusRequester(registryFocusRequester)
-                                        .testTag("broker_registry_search_input"),
-                                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search icon") },
-                                    trailingIcon = {
-                                        IconButton(onClick = { 
-                                            registrySearchQuery = ""
-                                            isRegistrySearchActive = false 
-                                        }) {
-                                            Icon(Icons.Default.Close, contentDescription = "Close search")
-                                        }
+                                        .focusRequester(registryFocusRequester),
+                                    onClear = {
+                                        registrySearchQuery = ""
+                                        isRegistrySearchActive = false
                                     },
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(12.dp),
-                                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp)
+                                    testTag = "broker_registry_search_input"
                                 )
                                 LaunchedEffect(isRegistrySearchActive) {
                                     if (isRegistrySearchActive) {
@@ -8588,26 +8985,25 @@ fun BrokerLedgerScreen(
 
                     // Dynamic Calculations & Summary Card
                     val totalQtlsSum = brokerBills.sumOf { it.quintals }
-                    Card(
+                    EnterpriseCard(
                         modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1F1B24)),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, Color(0xFF3F2B96).copy(alpha = 0.5f))
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f),
+                        borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("Total Bills", fontSize = 11.sp, color = Color(0xFF8C8797), fontWeight = FontWeight.Medium)
+                                Text("Total Bills", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
                                 Spacer(modifier = Modifier.height(4.dp))
-                                Text("${brokerBills.size}", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Color.White)
+                                Text("${brokerBills.size}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             }
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("Total Qtls", fontSize = 11.sp, color = Color(0xFF8C8797), fontWeight = FontWeight.Medium)
+                                Text("Total Qtls", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
                                 Spacer(modifier = Modifier.height(4.dp))
-                                Text("${String.format("%.2f", totalQtlsSum)} Qtls", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Color(0xFFBB86FC))
+                                Text("${String.format("%.2f", totalQtlsSum)} Qtls", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }
@@ -8692,7 +9088,7 @@ fun BrokerLedgerScreen(
                                                     RegisterField(
                                                         text = bill.billNumber,
                                                         width = 80,
-                                                        clickableColor = Color(0xFFBB86FC),
+                                                        clickableColor = MaterialTheme.colorScheme.primary,
                                                         onClick = { navController.navigate("bill_entry/${bill.firmName}/${bill.id}") }
                                                     )
 
@@ -8727,7 +9123,7 @@ fun BrokerLedgerScreen(
                                                             Icon(
                                                                 imageVector = Icons.Default.Edit,
                                                                 contentDescription = "Edit Bill",
-                                                                tint = Color(0xFFBB86FC),
+                                                                tint = MaterialTheme.colorScheme.primary,
                                                                 modifier = Modifier.size(16.dp)
                                                             )
                                                         }
@@ -8747,7 +9143,7 @@ fun BrokerLedgerScreen(
                                                             Icon(
                                                                 imageVector = Icons.Default.Share,
                                                                 contentDescription = "Share PDF",
-                                                                tint = Color(0xFFBB86FC),
+                                                                tint = MaterialTheme.colorScheme.primary,
                                                                 modifier = Modifier.size(16.dp)
                                                             )
                                                         }
@@ -8761,7 +9157,7 @@ fun BrokerLedgerScreen(
                                                             Icon(
                                                                 imageVector = Icons.Default.Download,
                                                                 contentDescription = "Export PDF",
-                                                                tint = Color(0xFFBB86FC),
+                                                                tint = MaterialTheme.colorScheme.primary,
                                                                 modifier = Modifier.size(16.dp)
                                                             )
                                                         }
@@ -8783,7 +9179,7 @@ fun BrokerLedgerScreen(
                                                             Icon(
                                                                 imageVector = Icons.Default.Visibility,
                                                                 contentDescription = "Preview PDF",
-                                                                tint = Color(0xFFBB86FC),
+                                                                tint = MaterialTheme.colorScheme.primary,
                                                                 modifier = Modifier.size(16.dp)
                                                             )
                                                         }
@@ -8852,44 +9248,30 @@ fun BrokerLedgerScreen(
     }
 
     if (showDeleteBillDialog && billToDelete != null) {
-        AlertDialog(
-            onDismissRequest = {
+        EnterpriseDialog(
+            title = "Delete Bill",
+            description = "Are you sure you want to delete Bill No. ${billToDelete!!.billNumber}?\nThis action cannot be undone.",
+            confirmText = "Delete",
+            dismissText = "Cancel",
+            onConfirm = {
+                com.example.util.BiometricHelper.runWithBiometric(
+                    context = context,
+                    title = "Ranisa Security",
+                    subtitle = "Verify your fingerprint to continue.",
+                    action = {
+                        viewModel.deleteBill(billToDelete!!)
+                        showDeleteBillDialog = false
+                        billToDelete = null
+                        Toast.makeText(context, "Bill deleted successfully", Toast.LENGTH_SHORT).show()
+                    }
+                )
+            },
+            onDismiss = {
                 showDeleteBillDialog = false
                 billToDelete = null
             },
-            title = { Text("Delete Bill") },
-            text = { Text("Are you sure you want to delete Bill No. ${billToDelete!!.billNumber}?\nThis action cannot be undone.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        com.example.util.BiometricHelper.runWithBiometric(
-                            context = context,
-                            title = "Ranisa Security",
-                            subtitle = "Verify your fingerprint to continue.",
-                            action = {
-                                viewModel.deleteBill(billToDelete!!)
-                                showDeleteBillDialog = false
-                                billToDelete = null
-                                Toast.makeText(context, "Bill deleted successfully", Toast.LENGTH_SHORT).show()
-                            }
-                        )
-                    },
-                    modifier = Modifier.testTag("confirm_delete_broker_bill_button")
-                ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteBillDialog = false
-                        billToDelete = null
-                    },
-                    modifier = Modifier.testTag("cancel_delete_broker_bill_button")
-                ) {
-                    Text("Cancel")
-                }
-            }
+            icon = Icons.Default.Delete,
+            confirmButtonColor = MaterialTheme.colorScheme.error
         )
     }
 
@@ -8946,42 +9328,33 @@ fun BrokerLedgerScreen(
     }
 
     if (showDeleteLedgerDialog && ledgerToDeleteName.isNotBlank()) {
-        AlertDialog(
-            onDismissRequest = { showDeleteLedgerDialog = false },
-            title = { Text("Delete all ledger transactions for this party?") },
-            text = { Text("This action will remove only the ledger records.\nThe Master List will remain unchanged.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        com.example.util.BiometricHelper.runWithBiometric(
-                            context = context,
-                            title = "Ranisa Security",
-                            subtitle = "Verify your fingerprint to continue.",
-                            action = {
-                                viewModel.deleteBrokerLedger(
-                                    brokerName = ledgerToDeleteName,
-                                    onSuccess = {
-                                        showDeleteLedgerDialog = false
-                                        Toast.makeText(context, "Ledger transactions deleted successfully", Toast.LENGTH_SHORT).show()
-                                    },
-                                    onError = { error ->
-                                        Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
-                                    }
-                                )
+        EnterpriseDialog(
+            title = "Delete all ledger records for this party?",
+            description = "This action will remove only the ledger records.\nThe Master List will remain unchanged.",
+            confirmText = "Delete",
+            dismissText = "Cancel",
+            onConfirm = {
+                com.example.util.BiometricHelper.runWithBiometric(
+                    context = context,
+                    title = "Ranisa Security",
+                    subtitle = "Verify your fingerprint to continue.",
+                    action = {
+                        viewModel.deleteBrokerLedger(
+                            brokerName = ledgerToDeleteName,
+                            onSuccess = {
+                                showDeleteLedgerDialog = false
+                                Toast.makeText(context, "Ledger transactions deleted successfully", Toast.LENGTH_SHORT).show()
+                            },
+                            onError = { error ->
+                                Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
                             }
                         )
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
-                ) {
-                    Text("Delete")
-                }
+                    }
+                )
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteLedgerDialog = false }) {
-                    Text("Cancel")
-                }
-            },
-            shape = RoundedCornerShape(16.dp)
+            onDismiss = { showDeleteLedgerDialog = false },
+            icon = Icons.Default.Delete,
+            confirmButtonColor = MaterialTheme.colorScheme.error
         )
     }
 

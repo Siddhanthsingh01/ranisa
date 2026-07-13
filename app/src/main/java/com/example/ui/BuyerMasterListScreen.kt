@@ -2,8 +2,10 @@ package com.example.ui
 
 import android.widget.Toast
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -38,6 +40,7 @@ import com.example.data.FirebaseBuyer
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import com.example.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -88,15 +91,24 @@ fun BuyerMasterListScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = {
+            SnackbarHost(snackbarHostState) { data ->
+                Snackbar(
+                    snackbarData = data,
+                    containerColor = MaterialTheme.colorScheme.inverseSurface,
+                    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                    actionColor = MaterialTheme.colorScheme.inversePrimary,
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+        },
         topBar = {
             TopAppBar(
                 title = {
                     Text(
                         "Buyer Master List",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
-                        color = Color.White
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onPrimary
                     )
                 },
                 navigationIcon = {
@@ -107,7 +119,7 @@ fun BuyerMasterListScreen(
                         Icon(
                             imageVector = Icons.Default.Menu,
                             contentDescription = "Open Drawer Menu",
-                            tint = Color.White
+                            tint = MaterialTheme.colorScheme.onPrimary
                         )
                     }
                 },
@@ -116,7 +128,7 @@ fun BuyerMasterListScreen(
                         Icon(
                             imageVector = Icons.Default.MoreVert,
                             contentDescription = "More options",
-                            tint = Color.White
+                            tint = MaterialTheme.colorScheme.onPrimary
                         )
                     }
                     DropdownMenu(
@@ -134,7 +146,10 @@ fun BuyerMasterListScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF322659) // Deep Purple Theme
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
                 )
             )
         },
@@ -148,9 +163,9 @@ fun BuyerMasterListScreen(
                     formGst = ""
                     showAddDialog = true
                 },
-                containerColor = Color(0xFF322659),
-                contentColor = Color.White,
-                shape = CircleShape,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .padding(16.dp)
                     .testTag("add_buyer_fab")
@@ -168,45 +183,18 @@ fun BuyerMasterListScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .background(Color(0xFFF9F9FB)) // Premium White/Off-White Background
+                .background(MaterialTheme.colorScheme.background)
         ) {
             // Search field
-            OutlinedTextField(
+            EnterpriseSearchField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("Search Buyer Name...") },
+                placeholder = "Search Buyer Name...",
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp)
-                    .testTag("buyer_search_input"),
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Outlined.Search,
-                        contentDescription = "Search icon",
-                        tint = Color.Gray
-                    )
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Clear search",
-                                tint = Color.Gray
-                            )
-                        }
-                    }
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(28.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFF322659),
-                    unfocusedBorderColor = Color(0xFFE2E8F0),
-                    focusedContainerColor = Color.White,
-                    unfocusedContainerColor = Color.White
-                ),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() })
+                    .padding(16.dp),
+                onClear = { searchQuery = "" },
+                testTag = "buyer_search_input"
             )
 
             // Content
@@ -227,21 +215,21 @@ fun BuyerMasterListScreen(
                             imageVector = Icons.Default.People,
                             contentDescription = "No buyers",
                             modifier = Modifier
-                                .size(100.dp)
+                                .size(96.dp)
                                 .padding(bottom = 16.dp),
-                            tint = Color(0xFFCBC8D6)
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                         )
                         Text(
                             text = "No Buyers Found",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = Color(0xFF322659)
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "Add buyers to start tracking transactions.",
-                            fontSize = 14.sp,
-                            color = Color.Gray
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(24.dp))
                         Button(
@@ -253,7 +241,7 @@ fun BuyerMasterListScreen(
                                 formGst = ""
                                 showAddDialog = true
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF322659)),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(Icons.Default.Add, contentDescription = null)
@@ -394,44 +382,35 @@ fun BuyerMasterListScreen(
     // Delete Ledger Dialog
     if (showDeleteDialog && selectedBuyerForDelete != null) {
         val buyer = selectedBuyerForDelete!!
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete all ledger records for this party?") },
-            text = { Text("This will only delete ledger transactions.\nThe Master List will remain unchanged.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        com.example.util.BiometricHelper.runWithBiometric(
-                            context = context,
-                            title = "Ranisa Security",
-                            subtitle = "Verify your fingerprint to continue.",
-                            action = {
-                                viewModel.deleteBuyerLedger(
-                                    buyerName = buyer.buyerName,
-                                    onSuccess = {
-                                        showDeleteDialog = false
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar("Ledger transactions deleted successfully")
-                                        }
-                                    },
-                                    onError = { error ->
-                                        Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
-                                    }
-                                )
+        EnterpriseDialog(
+            title = "Delete all ledger records for this party?",
+            description = "This will only delete ledger transactions.\nThe Master List will remain unchanged.",
+            confirmText = "Delete",
+            dismissText = "Cancel",
+            onConfirm = {
+                com.example.util.BiometricHelper.runWithBiometric(
+                    context = context,
+                    title = "Ranisa Security",
+                    subtitle = "Verify your fingerprint to continue.",
+                    action = {
+                        viewModel.deleteBuyerLedger(
+                            buyerName = buyer.buyerName,
+                            onSuccess = {
+                                showDeleteDialog = false
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("Ledger transactions deleted successfully")
+                                }
+                            },
+                            onError = { error ->
+                                Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
                             }
                         )
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
-                ) {
-                    Text("Delete")
-                }
+                    }
+                )
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Cancel")
-                }
-            },
-            shape = RoundedCornerShape(16.dp)
+            onDismiss = { showDeleteDialog = false },
+            icon = Icons.Default.Delete,
+            confirmButtonColor = MaterialTheme.colorScheme.error
         )
     }
 
@@ -464,14 +443,18 @@ fun BuyerCard(
     onDeleteLedger: () -> Unit,
     onCardClick: () -> Unit
 ) {
+    val isDark = isSystemInDarkTheme()
+    val borderCol = if (isDark) MaterialTheme.colorScheme.outline.copy(alpha = 0.25f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+
     Card(
+        onClick = onCardClick,
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(elevation = 3.dp, shape = RoundedCornerShape(12.dp))
-            .clickable { onCardClick() }
             .testTag("buyer_card_${buyer.buyerId}"),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, borderCol)
     ) {
         Row(
             modifier = Modifier
@@ -491,14 +474,13 @@ fun BuyerCard(
                     modifier = Modifier
                         .size(48.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFF322659).copy(alpha = 0.12f)),
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = initialLetter.uppercase(),
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF322659),
-                        fontSize = 20.sp
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
 
@@ -508,17 +490,16 @@ fun BuyerCard(
                 Column {
                     Text(
                         text = buyer.buyerName,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = Color(0xFF2D3748),
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     
                     Text(
                         text = "$billCount Registered Billings",
-                        fontSize = 12.sp,
-                        color = Color.Gray,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.padding(top = 2.dp)
                     )
@@ -529,33 +510,32 @@ fun BuyerCard(
                     ) {
                         Text(
                             text = "Total Qtls: ",
-                            fontSize = 12.sp,
-                            color = Color.Gray
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
                             text = "${String.format("%.2f", totalQtls)} Qtls",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF322659)
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
 
                     if (buyer.mobile.isNotBlank()) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(top = 2.dp)
+                            modifier = Modifier.padding(top = 4.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Phone,
                                 contentDescription = null,
-                                modifier = Modifier.size(11.dp),
-                                tint = Color.Gray
+                                modifier = Modifier.size(12.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(modifier = Modifier.width(3.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = buyer.mobile,
-                                fontSize = 11.sp,
-                                color = Color.Gray
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -563,21 +543,20 @@ fun BuyerCard(
                     if (buyer.address.isNotBlank()) {
                         Text(
                             text = buyer.address,
-                            fontSize = 11.sp,
-                            color = Color.Gray,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 2.dp)
+                            modifier = Modifier.padding(top = 4.dp)
                         )
                     }
 
                     if (buyer.gstNo.isNotBlank()) {
                         Text(
                             text = "GST: ${buyer.gstNo}",
-                            fontSize = 11.sp,
-                            color = Color(0xFF38C194),
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(top = 2.dp)
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.padding(top = 4.dp)
                         )
                     }
                 }
@@ -593,7 +572,7 @@ fun BuyerCard(
                     Icon(
                         imageVector = Icons.Default.MoreVert,
                         contentDescription = "More options",
-                        tint = Color.Gray
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 DropdownMenu(
@@ -646,24 +625,24 @@ fun BuyerFormDialog(
 ) {
     Dialog(onDismissRequest = onDismiss) {
         Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
+            shape = AppCorners.extraLarge,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(8.dp)
-                .shadow(8.dp, shape = RoundedCornerShape(16.dp))
+                .padding(AppSpacing.md),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)),
+            elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.high)
         ) {
             Column(
                 modifier = Modifier
-                    .padding(20.dp)
+                    .padding(AppSpacing.xl)
                     .fillMaxWidth()
             ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF322659),
-                    modifier = Modifier.padding(bottom = 16.dp)
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = AppSpacing.md)
                 )
 
                 // Name Input
@@ -672,33 +651,35 @@ fun BuyerFormDialog(
                     onValueChange = onNameChange,
                     label = { Text("Buyer Name *") },
                     singleLine = true,
-                    textStyle = LocalTextStyle.current.copy(color = Color.Black),
+                    textStyle = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 12.dp)
+                        .padding(bottom = AppSpacing.md)
                         .testTag("form_buyer_name"),
+                    shape = AppCorners.medium,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF322659),
-                        focusedLabelColor = Color(0xFF322659),
-                        focusedTextColor = Color.Black,
-                        unfocusedTextColor = Color.Black
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedLabelColor = MaterialTheme.colorScheme.primary,
+                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                     )
                 )
 
                 // Mobiles Column
                 Text(
                     text = "Mobile Numbers",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    color = Color(0xFF322659),
-                    modifier = Modifier.padding(bottom = 4.dp)
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = AppSpacing.xs)
                 )
                 
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                        .padding(bottom = AppSpacing.md),
+                    verticalArrangement = Arrangement.spacedBy(AppSpacing.xs)
                 ) {
                     mobiles.forEachIndexed { index, mobileValue ->
                         Row(
@@ -711,15 +692,18 @@ fun BuyerFormDialog(
                                 label = { Text("Mobile Number ${index + 1}") },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                                textStyle = LocalTextStyle.current.copy(color = Color.Black),
+                                textStyle = MaterialTheme.typography.bodyLarge,
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("form_buyer_mobile_$index"),
+                                shape = AppCorners.medium,
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = Color(0xFF322659),
-                                    focusedLabelColor = Color(0xFF322659),
-                                    focusedTextColor = Color.Black,
-                                    unfocusedTextColor = Color.Black
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                                    focusedLabelColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                                 )
                             )
                             Spacer(modifier = Modifier.width(8.dp))
@@ -729,12 +713,12 @@ fun BuyerFormDialog(
                                     modifier = Modifier
                                         .size(40.dp)
                                         .clip(CircleShape)
-                                        .background(Color(0xFFE6FFFA))
+                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Add,
                                         contentDescription = "Add Mobile",
-                                        tint = Color(0xFF319795)
+                                        tint = MaterialTheme.colorScheme.primary
                                     )
                                 }
                             } else {
@@ -743,12 +727,12 @@ fun BuyerFormDialog(
                                     modifier = Modifier
                                         .size(40.dp)
                                         .clip(CircleShape)
-                                        .background(Color(0xFFFFECEC))
+                                        .background(MaterialTheme.colorScheme.error.copy(alpha = 0.1f))
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Remove,
                                         contentDescription = "Remove Mobile",
-                                        tint = Color.Red
+                                        tint = MaterialTheme.colorScheme.error
                                     )
                                 }
                             }
@@ -762,16 +746,19 @@ fun BuyerFormDialog(
                     onValueChange = onAddressChange,
                     label = { Text("Address") },
                     maxLines = 2,
-                    textStyle = LocalTextStyle.current.copy(color = Color.Black),
+                    textStyle = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 12.dp)
+                        .padding(bottom = AppSpacing.md)
                         .testTag("form_buyer_address"),
+                    shape = AppCorners.medium,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF322659),
-                        focusedLabelColor = Color(0xFF322659),
-                        focusedTextColor = Color.Black,
-                        unfocusedTextColor = Color.Black
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedLabelColor = MaterialTheme.colorScheme.primary,
+                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                     )
                 )
 
@@ -781,35 +768,38 @@ fun BuyerFormDialog(
                     onValueChange = onGstChange,
                     label = { Text("GST Number (Optional)") },
                     singleLine = true,
-                    textStyle = LocalTextStyle.current.copy(color = Color.Black),
+                    textStyle = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 20.dp)
+                        .padding(bottom = AppSpacing.lg)
                         .testTag("form_buyer_gst"),
+                    shape = AppCorners.medium,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF322659),
-                        focusedLabelColor = Color(0xFF322659),
-                        focusedTextColor = Color.Black,
-                        unfocusedTextColor = Color.Black
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedLabelColor = MaterialTheme.colorScheme.primary,
+                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                     )
                 )
 
                 // Buttons
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Cancel", color = Color.Gray)
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
+                    EnterpriseOutlinedButton(
+                        text = "Cancel",
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f)
+                    )
+                    EnterprisePrimaryButton(
+                        text = "Save Changes",
                         onClick = onSave,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF322659)),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text("Save Changes")
-                    }
+                        modifier = Modifier.weight(1.3f)
+                    )
                 }
             }
         }

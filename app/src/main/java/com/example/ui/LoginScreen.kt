@@ -98,7 +98,7 @@ fun LoginScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(MaterialTheme.colorScheme.background)
             .windowInsetsPadding(WindowInsets.safeDrawing)
     ) {
         Column(
@@ -132,7 +132,7 @@ fun LoginScreen(
                     text = "Ranisa",
                     fontSize = 32.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF322659),
+                    color = MaterialTheme.colorScheme.primary,
                     textAlign = TextAlign.Center
                 )
 
@@ -143,7 +143,7 @@ fun LoginScreen(
                     text = "Rice Broker Accounting System",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium,
-                    color = Color(0xFF322659).copy(alpha = 0.65f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
             }
@@ -226,25 +226,25 @@ fun LoginScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("username_input"),
-                    label = { Text("Enter Username", color = Color(0xFF8E8E93)) },
+                    label = { Text("Enter Username") },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Person,
                             contentDescription = "Username Icon",
-                            tint = purplePrimary
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     },
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp),
-                    textStyle = LocalTextStyle.current.copy(color = Color.Black),
+                    textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.Black,
-                        unfocusedTextColor = Color.Black,
-                        focusedBorderColor = purplePrimary,
-                        unfocusedBorderColor = Color.LightGray,
-                        focusedLabelColor = Color(0xFF8E8E93),
-                        unfocusedLabelColor = Color(0xFF8E8E93),
-                        cursorColor = purplePrimary
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                        focusedLabelColor = MaterialTheme.colorScheme.primary,
+                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        cursorColor = MaterialTheme.colorScheme.primary
                     ),
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Text,
@@ -269,12 +269,12 @@ fun LoginScreen(
                         .fillMaxWidth()
                         .focusRequester(passwordFocusRequester)
                         .testTag("password_input"),
-                    label = { Text("Enter Password", color = Color(0xFF8E8E93)) },
+                    label = { Text("Enter Password") },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Lock,
                             contentDescription = "Password Icon",
-                            tint = purplePrimary
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     },
                     trailingIcon = {
@@ -282,22 +282,22 @@ fun LoginScreen(
                             Icon(
                                 imageVector = if (isPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
                                 contentDescription = if (isPasswordVisible) "Hide Password" else "Show Password",
-                                tint = purplePrimary.copy(alpha = 0.7f)
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
                             )
                         }
                     },
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp),
                     visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    textStyle = LocalTextStyle.current.copy(color = Color.Black),
+                    textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.Black,
-                        unfocusedTextColor = Color.Black,
-                        focusedBorderColor = purplePrimary,
-                        unfocusedBorderColor = Color.LightGray,
-                        focusedLabelColor = Color(0xFF8E8E93),
-                        unfocusedLabelColor = Color(0xFF8E8E93),
-                        cursorColor = purplePrimary
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                        focusedLabelColor = MaterialTheme.colorScheme.primary,
+                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        cursorColor = MaterialTheme.colorScheme.primary
                     ),
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Password,
@@ -352,16 +352,15 @@ fun LoginScreen(
                         checked = rememberMe,
                         onCheckedChange = { rememberMe = it },
                         colors = CheckboxDefaults.colors(
-                            checkedColor = purplePrimary,
-                            uncheckedColor = Color.Gray,
-                            checkmarkColor = Color.White
+                            checkedColor = MaterialTheme.colorScheme.primary,
+                            checkmarkColor = MaterialTheme.colorScheme.onPrimary
                         ),
                         modifier = Modifier.testTag("remember_me_checkbox")
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "Remember Me",
-                        color = Color(0xFF322659),
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.clickable { rememberMe = !rememberMe }
@@ -409,15 +408,15 @@ fun LoginScreen(
                         .testTag("login_button"),
                     shape = RoundedCornerShape(28.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = purplePrimary,
-                        contentColor = Color.White
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
                     ),
                     enabled = !isLoading
                 ) {
                     if (isLoading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(24.dp),
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             strokeWidth = 2.dp
                         )
                     } else {
@@ -436,7 +435,7 @@ fun LoginScreen(
                 text = "Version 1.0",
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
-                color = Color(0xFF322659).copy(alpha = 0.5f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 modifier = Modifier.padding(bottom = 20.dp)
             )
         }
