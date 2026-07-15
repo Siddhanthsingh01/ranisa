@@ -43,8 +43,8 @@ class AppRepository(private val appDao: AppDao) {
             val existingFirms = appDao.getAllFirms()
             if (existingFirms.isEmpty()) {
                 val defaultFirms = listOf(
-                    Firm(name = "Lalit Rice Broker"),
-                    Firm(name = "Hare Krishna Rice Broker")
+                    Firm(id = "F001", name = "Lalit Rice Broker"),
+                    Firm(id = "F002", name = "Hare Krishna Rice Broker")
                 )
                 defaultFirms.forEach { appDao.insertFirm(it) }
             }
@@ -345,17 +345,34 @@ class AppRepository(private val appDao: AppDao) {
     }
 
     suspend fun syncBillsFromFirebase(firmName: String, billsList: List<ContractBill>) {
-        appDao.clearBillsByFirm(firmName)
-        for (bill in billsList) {
-            appDao.insertBill(bill)
+        val sanitizedId = FirebaseService.getSanitizedFirmId(firmName)
+        val targetName = if (sanitizedId == "F001") "Lalit Rice Broker" else "Hare Krishna Rice Broker"
+        
+        // Fully clear local Room cache for this firm's data by both sanitized ID and name representation
+        appDao.clearBillsByFirm(sanitizedId)
+        appDao.clearBillsByFirm(targetName)
+        
+        // Strictly prevent duplicates by firm ID and bill number
+        val uniqueBills = billsList.distinctBy { 
+            val sanFirm = FirebaseService.getSanitizedFirmId(it.firmName)
+            "${sanFirm}_${it.billNumber}".lowercase()
+        }
+        
+        android.util.Log.d("AppRepository", "[SYNC LOG] Inserting ${uniqueBills.size} unique bills after deduplication. Raw list size was: ${billsList.size}")
+        
+        for (bill in uniqueBills) {
+            val normalizedBill = bill.copy(
+                firmName = sanitizedId
+            )
+            appDao.insertBill(normalizedBill)
             // Also insert seller and buyer if not exists
             val sellersList = appDao.getAllSellers()
-            if (sellersList.none { it.name.equals(bill.sellerName, ignoreCase = true) }) {
-                appDao.insertSeller(Seller(name = bill.sellerName, place = bill.place))
+            if (sellersList.none { it.name.equals(normalizedBill.sellerName, ignoreCase = true) }) {
+                appDao.insertSeller(Seller(name = normalizedBill.sellerName, place = normalizedBill.place))
             }
             val buyersList = appDao.getAllBuyers()
-            if (buyersList.none { it.name.equals(bill.buyerName, ignoreCase = true) }) {
-                appDao.insertBuyer(Buyer(name = bill.buyerName, place = bill.place))
+            if (buyersList.none { it.name.equals(normalizedBill.buyerName, ignoreCase = true) }) {
+                appDao.insertBuyer(Buyer(name = normalizedBill.buyerName, place = normalizedBill.place))
             }
         }
     }
@@ -385,6 +402,42 @@ class AppRepository(private val appDao: AppDao) {
         appDao.clearAllLogs()
         for (log in logsList) {
             appDao.insertLog(log)
+        }
+    }
+
+    suspend fun syncSellersFromFirebase(firmName: String, sellersList: List<Seller>) {
+        appDao.clearSellersByFirm(firmName)
+        for (seller in sellersList) {
+            appDao.insertSeller(seller)
+        }
+    }
+
+    suspend fun syncBuyersFromFirebase(firmName: String, buyersList: List<Buyer>) {
+        appDao.clearBuyersByFirm(firmName)
+        for (buyer in buyersList) {
+            appDao.insertBuyer(buyer)
+        }
+    }
+
+    suspend fun syncBrokersFromFirebase(firmName: String, brokersList: List<Broker>) {
+        appDao.clearBrokersByFirm(firmName)
+        for (broker in brokersList) {
+            appDao.insertBroker(broker)
+        }
+    }
+
+    suspend fun insertFirmDirect(firm: Firm) {
+        val existing = appDao.getAllFirms()
+        val foundById = existing.find { it.id == firm.id }
+        if (foundById != null) {
+            if (foundById.name != firm.name) {
+                appDao.insertFirm(firm)
+            }
+        } else {
+            val foundByName = existing.find { it.name.equals(firm.name, ignoreCase = true) }
+            if (foundByName == null) {
+                appDao.insertFirm(firm)
+            }
         }
     }
 }

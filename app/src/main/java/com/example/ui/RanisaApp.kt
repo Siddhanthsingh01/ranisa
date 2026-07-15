@@ -97,14 +97,39 @@ fun RanisaApp(
     val users by viewModel.users.collectAsState()
     val firms by viewModel.firms.collectAsState()
 
+    val assignedFirmsStr = sharedPrefs.getString("saved_firm_access", "Lalit Rice Broker, Hare Krishna Rice Broker") ?: "Lalit Rice Broker, Hare Krishna Rice Broker"
+    val assignedFirmsList = remember(assignedFirmsStr) { assignedFirmsStr.split(",").map { it.trim() }.filter { it.isNotBlank() } }
+
+    val displayedFirms = remember(firms, assignedFirmsList) {
+        firms.filter { firm ->
+            assignedFirmsList.any { assigned ->
+                assigned.equals(firm.id, ignoreCase = true) || assigned.equals(firm.name, ignoreCase = true)
+            }
+        }.ifEmpty {
+            assignedFirmsList.map { nameOrId ->
+                val id = when {
+                    nameOrId == "F002" || nameOrId.contains("Krishna", ignoreCase = true) -> "F002"
+                    nameOrId == "F001" || nameOrId.contains("Lalit", ignoreCase = true) -> "F001"
+                    else -> nameOrId
+                }
+                val realName = when (id) {
+                    "F001" -> "Lalit Rice Broker"
+                    "F002" -> "Hare Krishna Rice Broker"
+                    else -> nameOrId
+                }
+                Firm(id = id, name = realName)
+            }.distinctBy { it.id }
+        }
+    }
+
     var showFirmDialog by remember { mutableStateOf(false) }
     var showUserDialog by remember { mutableStateOf(false) }
     var showNotificationDialog by remember { mutableStateOf(false) }
 
     // Navigation state monitoring to select active items
     val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route ?: "login"
-    val showScaffoldBars = currentRoute != "login"
+    val currentRoute = navBackStackEntry?.destination?.route ?: "splash"
+    val showScaffoldBars = currentRoute != "login" && currentRoute != "splash" && currentRoute != "firm_selection"
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -159,6 +184,7 @@ fun RanisaApp(
                         Triple("seller_master_list", Icons.Default.Storefront, "New Seller"),
                         Triple("buyer_master_list", Icons.Default.People, "New Buyer"),
                         Triple("broker_master_list", Icons.Default.People, "New Broker"),
+                        Triple("firm_selection", Icons.Default.Business, "Switch Firm"),
                         Triple("log_history", Icons.Default.History, "Logs"),
                         Triple("security_settings", Icons.Default.Lock, "Security")
                     )
@@ -190,41 +216,6 @@ fun RanisaApp(
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Firms section
-                    Text(
-                        text = "Firms",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Firm 1: Lalit Rice Broker
-                    FirmDrawerItem(
-                        name = "Lalit Rice Broker",
-                        selected = activeFirm?.name == "Lalit Rice Broker",
-                        onClick = {
-                            viewModel.selectFirm(Firm(name = "Lalit Rice Broker"))
-                            scope.launch { drawerState.close() }
-                        }
-                    )
-
-                    // Firm 2: Hare Krishna Rice Broker
-                    FirmDrawerItem(
-                        name = "Hare Krishna Rice Broker",
-                        selected = activeFirm?.name == "Hare Krishna Rice Broker",
-                        onClick = {
-                            viewModel.selectFirm(Firm(name = "Hare Krishna Rice Broker"))
-                            scope.launch { drawerState.close() }
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.height(24.dp))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     Spacer(modifier = Modifier.height(16.dp))
 
@@ -377,13 +368,84 @@ fun RanisaApp(
             ) {
                 NavHost(
                     navController = navController,
-                    startDestination = "login"
+                    startDestination = "splash"
                 ) {
+                    composable("splash") {
+                        SplashScreen(
+                            onNavigateToLogin = {
+                                navController.navigate("login") {
+                                    popUpTo("splash") { inclusive = true }
+                                }
+                            },
+                            onNavigateToFirmSelection = {
+                                navController.navigate("firm_selection") {
+                                    popUpTo("splash") { inclusive = true }
+                                }
+                            },
+                            onNavigateToHome = {
+                                navController.navigate("home") {
+                                    popUpTo("splash") { inclusive = true }
+                                }
+                            },
+                            viewModel = viewModel
+                        )
+                    }
                     composable("login") {
                         LoginScreen(
-                            onLoginSuccess = { username, role ->
+                            onLoginSuccess = { username, role, assignedFirms ->
+                                val cleanedFirms = assignedFirms.filter { it.isNotBlank() }
+                                if (cleanedFirms.size == 1) {
+                                    val singleFirmNameOrId = cleanedFirms.first()
+                                    val id = when {
+                                        singleFirmNameOrId == "F002" || singleFirmNameOrId.contains("Krishna", ignoreCase = true) -> "F002"
+                                        singleFirmNameOrId == "F001" || singleFirmNameOrId.contains("Lalit", ignoreCase = true) -> "F001"
+                                        else -> singleFirmNameOrId
+                                    }
+                                    val realName = when (id) {
+                                        "F001" -> "Lalit Rice Broker"
+                                        "F002" -> "Hare Krishna Rice Broker"
+                                        else -> singleFirmNameOrId
+                                    }
+                                    
+                                    // Save CurrentUser and CurrentFirmId
+                                    val prefs = context.getSharedPreferences("ranisa_prefs", android.content.Context.MODE_PRIVATE)
+                                    prefs.edit()
+                                        .putString("saved_username", username)
+                                        .putString("CurrentUser", username)
+                                        .putString("current_firm_id", id)
+                                        .putString("current_firm_name", realName)
+                                        .putString("CurrentFirmId", id)
+                                        .apply()
+
+                                    // Let ViewModel select and sync the single firm
+                                    viewModel.selectFirm(com.example.data.Firm(id = id, name = realName))
+
+                                    navController.navigate("home") {
+                                        popUpTo("login") { inclusive = true }
+                                    }
+                                } else {
+                                    navController.navigate("firm_selection") {
+                                        popUpTo("login") { inclusive = true }
+                                    }
+                                }
+                            },
+                            viewModel = viewModel
+                        )
+                    }
+                    composable("firm_selection") {
+                        FirmSelectionScreen(
+                            onFirmSelected = { firm ->
+                                viewModel.selectFirm(firm)
                                 navController.navigate("home") {
-                                    popUpTo("login") { inclusive = true }
+                                    popUpTo("firm_selection") { inclusive = true }
+                                }
+                            },
+                            onLogout = {
+                                val prefs = context.getSharedPreferences("ranisa_prefs", android.content.Context.MODE_PRIVATE)
+                                prefs.edit().clear().apply()
+                                viewModel.logoutUser()
+                                navController.navigate("login") {
+                                    popUpTo(0) { inclusive = true }
                                 }
                             },
                             viewModel = viewModel
@@ -714,17 +776,37 @@ fun HomeScreen(navController: NavController, viewModel: RanisaViewModel) {
     val rtdbFullBuyers by viewModel.rtdbFullBuyers.collectAsState()
     val rtdbFullSellers by viewModel.rtdbFullSellers.collectAsState()
     val rtdbFullBrokers by viewModel.rtdbFullBrokers.collectAsState()
+    val firestoreUser by viewModel.firestoreUser.collectAsState()
 
-    val currentCalendar = java.util.Calendar.getInstance()
+    val tz = java.util.TimeZone.getTimeZone("Asia/Kolkata")
+    val currentCalendar = java.util.Calendar.getInstance(tz)
     val hour = currentCalendar.get(java.util.Calendar.HOUR_OF_DAY)
     val greeting = when (hour) {
-        in 5..11 -> "Good Morning ☀️"
-        in 12..16 -> "Good Afternoon 🌤️"
-        in 17..20 -> "Good Evening 🌇"
-        else -> "Good Night 🌙"
+        in 5..11 -> "Good Morning"
+        in 12..16 -> "Good Afternoon"
+        in 17..20 -> "Good Evening"
+        else -> "Good Night"
     }
-    val liveDateStr = java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()).format(currentCalendar.time)
-    val liveDayStr = java.text.SimpleDateFormat("EEEE", java.util.Locale.getDefault()).format(currentCalendar.time)
+    val liveDateSdf = java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()).apply {
+        timeZone = tz
+    }
+    val liveDaySdf = java.text.SimpleDateFormat("EEEE", java.util.Locale.getDefault()).apply {
+        timeZone = tz
+    }
+    val liveDateStr = liveDateSdf.format(currentCalendar.time)
+    val liveDayStr = liveDaySdf.format(currentCalendar.time)
+
+    val welcomeName = remember(firestoreUser, activeUser) {
+        val fn = firestoreUser?.fullName?.trim()
+        val dn = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.displayName?.trim()
+        val em = activeUser?.username?.trim() ?: com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.email?.trim() ?: "Admin"
+        
+        when {
+            !fn.isNullOrEmpty() -> fn
+            !dn.isNullOrEmpty() -> dn
+            else -> em
+        }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -735,7 +817,9 @@ fun HomeScreen(navController: NavController, viewModel: RanisaViewModel) {
         // Welcome Card matching image
         item {
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight(),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -748,21 +832,44 @@ fun HomeScreen(navController: NavController, viewModel: RanisaViewModel) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(
+                        modifier = Modifier
+                            .weight(1.5f)
+                            .padding(end = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                         Text(
-                            text = "Welcome, ${activeUser?.username?.substringBefore(" ") ?: "Admin"}",
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = "Welcome, $welcomeName",
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = greeting,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 2.dp)
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "🏢 ${activeFirm?.name ?: "No Active Firm"}",
+                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
+
                     Row(
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier
+                            .wrapContentSize()
+                            .weight(1f, fill = false),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.End
                     ) {
                         Box(
                             modifier = Modifier
@@ -777,17 +884,28 @@ fun HomeScreen(navController: NavController, viewModel: RanisaViewModel) {
                                 modifier = Modifier.size(20.dp)
                             )
                         }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(
+                            verticalArrangement = Arrangement.Center
+                        ) {
                             Text(
                                 text = liveDateStr,
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onSurface
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                ),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = liveDayStr,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontSize = 11.sp
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -819,7 +937,10 @@ fun HomeScreen(navController: NavController, viewModel: RanisaViewModel) {
                             icon = Icons.Default.Description,
                             iconBgColor = Color(0xFF38C194),
                             cardBgColor = Color(0xFFEEFBF7),
-                            onClick = { navController.navigate("contract_selection") }
+                            onClick = { 
+                                val activeFirmName = activeFirm?.name ?: "Lalit Rice Broker"
+                                navController.navigate("bill_entry/$activeFirmName/-1") 
+                            }
                         )
                     }
                     Box(modifier = Modifier.weight(1f)) {
@@ -6101,7 +6222,12 @@ fun PaymentListScreen(navController: NavController, viewModel: RanisaViewModel) 
                                         Text("Latest Date: ${latestBill?.date ?: "N/A"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                     Column(horizontalAlignment = Alignment.End) {
-                                        Text("Firm: ${latestBill?.firmName ?: "N/A"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        val displayFirm = when (latestBill?.firmName) {
+                                            "F001" -> "Lalit Rice Broker"
+                                            "F002" -> "Hare Krishna Rice Broker"
+                                            else -> latestBill?.firmName ?: "N/A"
+                                        }
+                                        Text("Firm: $displayFirm", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         Text("Total Bills: $totalBills", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
@@ -7568,23 +7694,31 @@ fun ReportsScreen(viewModel: RanisaViewModel) {
 @Composable
 fun LogHistoryScreen(viewModel: RanisaViewModel) {
     val logs by viewModel.logs.collectAsState()
+    val firestoreUser by viewModel.firestoreUser.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategoryFilter by remember { mutableStateOf("All") }
     var selectedRoleFilter by remember { mutableStateOf("All") }
     var selectedFirmFilter by remember { mutableStateOf("All") }
+    var selectedDateFilter by remember { mutableStateOf("All") }
+    var selectedActionFilter by remember { mutableStateOf("All") }
     var expandedLogId by remember { mutableStateOf<Int?>(null) }
+    var pageLimit by remember { mutableStateOf(50) }
 
     val categories = listOf("All", "Bills", "Payments", "PDF/Print", "Auth", "Others")
     val roles = listOf("All", "Admin", "Broker", "Accountant", "Viewer")
     val firms = listOf("All", "Lalit Rice Broker", "Hare Krishna Rice Broker")
+    val dateFilters = listOf("All", "Today", "Yesterday", "Last 7 Days")
+    val actionFilters = listOf("All", "CREATE", "UPDATE", "DELETE", "Login", "Logout", "Print", "PDF Preview", "PDF Download", "PDF Share")
 
     val filteredLogs = logs.filter { log ->
         val matchesSearch = searchQuery.isBlank() ||
                 log.action.contains(searchQuery, ignoreCase = true) ||
                 log.userName.contains(searchQuery, ignoreCase = true) ||
+                log.userRole.contains(searchQuery, ignoreCase = true) ||
                 log.screen.contains(searchQuery, ignoreCase = true) ||
                 log.billNo.contains(searchQuery, ignoreCase = true) ||
                 log.partyName.contains(searchQuery, ignoreCase = true) ||
+                log.firmName.contains(searchQuery, ignoreCase = true) ||
                 log.oldValue.contains(searchQuery, ignoreCase = true) ||
                 log.newValue.contains(searchQuery, ignoreCase = true)
 
@@ -7605,9 +7739,42 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
         }
 
         val matchesRole = selectedRoleFilter == "All" || log.userRole.equals(selectedRoleFilter, ignoreCase = true)
-        val matchesFirm = selectedFirmFilter == "All" || log.firmName.equals(selectedFirmFilter, ignoreCase = true)
+        val matchesFirm = when (selectedFirmFilter) {
+            "All" -> true
+            "Lalit Rice Broker" -> log.firmName.equals("F001", ignoreCase = true) || log.firmName.contains("Lalit", ignoreCase = true)
+            "Hare Krishna Rice Broker" -> log.firmName.equals("F002", ignoreCase = true) || log.firmName.contains("Hare", ignoreCase = true)
+            else -> log.firmName.equals(selectedFirmFilter, ignoreCase = true)
+        }
+        val matchesDate = when (selectedDateFilter) {
+            "All" -> true
+            "Today" -> {
+                val today = SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+                log.date == today
+            }
+            "Yesterday" -> {
+                val cal = java.util.Calendar.getInstance()
+                cal.add(java.util.Calendar.DATE, -1)
+                val yesterday = SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(cal.time)
+                log.date == yesterday
+            }
+            "Last 7 Days" -> {
+                try {
+                    val sdf = SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                    val logDate = sdf.parse(log.date)
+                    if (logDate != null) {
+                        val limitCal = java.util.Calendar.getInstance()
+                        limitCal.add(java.util.Calendar.DATE, -7)
+                        logDate.after(limitCal.time)
+                    } else false
+                } catch (e: Exception) {
+                    false
+                }
+            }
+            else -> true
+        }
+        val matchesAction = selectedActionFilter == "All" || log.action.equals(selectedActionFilter, ignoreCase = true)
 
-        matchesSearch && matchesCategory && matchesRole && matchesFirm
+        matchesSearch && matchesCategory && matchesRole && matchesFirm && matchesDate && matchesAction
     }
 
     Column(
@@ -7657,41 +7824,54 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
             }
         }
 
-        // Row of Roles & Firms Filters
+        // Role Filter (Firm Ledger filter removed)
+        Text("Role:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Role:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    roles.forEach { r ->
-                        FilterChip(
-                            selected = selectedRoleFilter == r,
-                            onClick = { selectedRoleFilter = r },
-                            label = { Text(r, fontSize = 10.sp) }
-                        )
-                    }
-                }
+            roles.forEach { r ->
+                FilterChip(
+                    selected = selectedRoleFilter == r,
+                    onClick = { selectedRoleFilter = r },
+                    label = { Text(r, fontSize = 10.sp) }
+                )
             }
+        }
 
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Firm Ledger:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    firms.forEach { f ->
-                        FilterChip(
-                            selected = selectedFirmFilter == f,
-                            onClick = { selectedFirmFilter = f },
-                            label = { Text(if (f.startsWith("Lalit")) "Lalit" else if (f.startsWith("Hare")) "H. Krishna" else "All", fontSize = 10.sp) }
-                        )
-                    }
-                }
+        // Date Filter
+        Text("Date Range:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            dateFilters.forEach { df ->
+                FilterChip(
+                    selected = selectedDateFilter == df,
+                    onClick = { selectedDateFilter = df },
+                    label = { Text(df, fontSize = 10.sp) }
+                )
+            }
+        }
+
+        // Action Filter
+        Text("Action Type:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            actionFilters.forEach { af ->
+                FilterChip(
+                    selected = selectedActionFilter == af,
+                    onClick = { selectedActionFilter = af },
+                    label = { Text(af, fontSize = 10.sp) }
+                )
             }
         }
 
@@ -7717,11 +7897,15 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
                 }
             }
         } else {
+            val currentEmail = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.email?.trim() ?: ""
+            val profileFullName = firestoreUser?.fullName?.trim() ?: ""
+            val profileEmail = firestoreUser?.email?.trim() ?: ""
+
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(filteredLogs, key = { it.id }) { log ->
+                items(filteredLogs.take(pageLimit), key = { it.id }) { log ->
                     val isExpanded = expandedLogId == log.id
                     val isDelet = log.action.contains("DELETE", ignoreCase = true)
                     val isUpdat = log.action.contains("UPDATE", ignoreCase = true) || log.action.contains("EDIT", ignoreCase = true)
@@ -7742,6 +7926,37 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
                         isCreat -> MaterialTheme.colorScheme.onPrimaryContainer
                         isPdf -> Color(0xFFC81E1E)
                         else -> MaterialTheme.colorScheme.onSecondaryContainer
+                    }
+
+                    val resolvedDisplayName = remember(log.userName, firestoreUser) {
+                        val trimmedName = log.userName.trim()
+                        val isCurrentUser = trimmedName.equals(currentEmail, ignoreCase = true) ||
+                                            (profileEmail.isNotEmpty() && trimmedName.equals(profileEmail, ignoreCase = true)) ||
+                                            trimmedName.equals("crsidhant01@gmail.com", ignoreCase = true)
+                        
+                        when {
+                            isCurrentUser && profileFullName.isNotEmpty() -> profileFullName
+                            isCurrentUser -> {
+                                val usernameFromEmail = currentEmail.substringBefore("@")
+                                if (usernameFromEmail.isNotEmpty()) usernameFromEmail else trimmedName
+                            }
+                            trimmedName.contains("@") -> {
+                                val usernamePart = trimmedName.substringBefore("@")
+                                if (usernamePart.isNotEmpty()) usernamePart else trimmedName
+                            }
+                            else -> trimmedName
+                        }
+                    }
+
+                    val avatarText = remember(resolvedDisplayName) {
+                        val parts = resolvedDisplayName.split(" ").filter { it.isNotEmpty() }
+                        if (parts.size >= 2) {
+                            (parts[0].take(1) + parts[1].take(1)).uppercase()
+                        } else if (parts.isNotEmpty()) {
+                            parts[0].take(2).uppercase()
+                        } else {
+                            "UN"
+                        }
                     }
 
                     Card(
@@ -7776,7 +7991,7 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                            text = log.userName.take(2).uppercase(),
+                                            text = avatarText,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 11.sp,
                                             color = MaterialTheme.colorScheme.primary
@@ -7785,7 +8000,7 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
 
                                     Column {
                                         Text(
-                                            text = log.userName,
+                                            text = resolvedDisplayName,
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -7827,12 +8042,24 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
                                     )
                                 }
 
-                                Text(
-                                    text = "Screen: ${log.screen}",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = "Screen: ${log.screen}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    val displayLogFirm = when (log.firmName) {
+                                        "F001" -> "Lalit Rice Broker"
+                                        "F002" -> "Hare Krishna Rice Broker"
+                                        else -> log.firmName.ifBlank { "N/A" }
+                                    }
+                                    Text(
+                                        text = "Firm: $displayLogFirm",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                    )
+                                }
                             }
 
                             if (log.billNo.isNotBlank() || log.partyName.isNotBlank()) {
@@ -7862,7 +8089,12 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text("Log Metadata:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                    Text("Firm Ledger: ${log.firmName.ifBlank { "N/A" }}", fontSize = 11.sp)
+                                    val displayLogFirm = when (log.firmName) {
+                                        "F001" -> "Lalit Rice Broker"
+                                        "F002" -> "Hare Krishna Rice Broker"
+                                        else -> log.firmName.ifBlank { "N/A" }
+                                    }
+                                    Text("Firm Ledger: $displayLogFirm", fontSize = 11.sp)
                                     Text("Device: ${log.device.ifBlank { "Android Device" }}", fontSize = 11.sp)
                                     Text("Session Reference: ${log.ipSessionId.ifBlank { "N/A" }}", fontSize = 11.sp)
 
@@ -7938,6 +8170,22 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
+                        }
+                    }
+                }
+
+                if (filteredLogs.size > pageLimit) {
+                    item {
+                        LaunchedEffect(Unit) {
+                            pageLimit += 50
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }

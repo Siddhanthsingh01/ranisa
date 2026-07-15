@@ -4,7 +4,10 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import com.google.firebase.FirebaseApp
-import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.FieldValue
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -13,16 +16,108 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 /**
- * Firebase Service handling direct interaction with Firebase Realtime Database
- * for authentication and audit log persistence.
+ * Firebase Service handling direct interaction with Cloud Firestore
+ * for authentication, master data, and audit/action logging persistence.
  */
 object FirebaseService {
     private const val TAG = "FirebaseService"
 
-    private var paymentsListener: com.google.firebase.database.ValueEventListener? = null
-    private var lalitBillsListener: com.google.firebase.database.ValueEventListener? = null
-    private var hareKrishnaBillsListener: com.google.firebase.database.ValueEventListener? = null
-    private var auditLogsListener: com.google.firebase.database.ValueEventListener? = null
+    @Volatile
+    var activeUserProfile: FirestoreUser? = null
+
+    fun getCategory(action: String, screen: String): String {
+        val act = action.uppercase()
+        val scr = screen.uppercase()
+        return when {
+            act.contains("BILL") || scr.contains("BILL") -> "Bills"
+            act.contains("PAYMENT") || act.contains("LEDGER") || scr.contains("PAYMENT") || scr.contains("LEDGER") -> "Payments"
+            act.contains("PDF") || act.contains("PRINT") || scr.contains("PDF") || scr.contains("PRINT") -> "PDF/Print"
+            act.contains("LOGIN") || act.contains("LOGOUT") || act.contains("AUTH") || act.contains("USER") || scr.contains("AUTH") || scr.contains("USER") -> "Auth"
+            else -> "Others"
+        }
+    }
+
+    fun buildNewAuditLogMap(
+        action: String,
+        screen: String,
+        firmIdInput: String = "",
+        firmNameInput: String = "",
+        userEmailInput: String = "",
+        userRoleInput: String = "",
+        billNo: String = "",
+        partyName: String = "",
+        oldValueInput: String = "",
+        newValueInput: String = "",
+        detailsInput: String = ""
+    ): Map<String, Any?> {
+        val fUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+        val email = userEmailInput.ifBlank { activeUserProfile?.email ?: fUser?.email ?: "" }
+        val fullName = activeUserProfile?.fullName ?: email.substringBefore("@")
+        val userId = fUser?.uid ?: ""
+        val role = userRoleInput.ifBlank { "Viewer" }
+
+        val firmId = getSanitizedFirmId(firmIdInput.ifBlank { firmNameInput })
+        val firmName = when (firmId) {
+            "F001" -> "Lalit Rice Broker"
+            "F002" -> "Hare Krishna Rice Broker"
+            else -> firmNameInput.ifBlank { firmIdInput }
+        }
+
+        val category = getCategory(action, screen)
+
+        val deviceMap = mapOf(
+            "model" to android.os.Build.MODEL,
+            "brand" to android.os.Build.BRAND,
+            "sdk" to android.os.Build.VERSION.SDK_INT,
+            "platform" to "Android"
+        )
+
+        val detailsMap = mapOf(
+            "message" to detailsInput,
+            "sessionId" to "Session_" + java.util.UUID.randomUUID().toString().take(8)
+        )
+
+        val oldVal = if (oldValueInput.isNotBlank()) mapOf("value" to oldValueInput) else emptyMap<String, Any>()
+        val newVal = if (newValueInput.isNotBlank()) mapOf("value" to newValueInput) else emptyMap<String, Any>()
+
+        return mapOf(
+            "action" to action,
+            "category" to category,
+            "userId" to userId,
+            "fullName" to fullName,
+            "email" to email,
+            "role" to role,
+            "firmId" to firmId,
+            "firmName" to firmName,
+            "screen" to screen,
+            "billNo" to billNo,
+            "partyName" to partyName,
+            "details" to detailsMap,
+            "oldValue" to oldVal,
+            "newValue" to newVal,
+            "device" to deviceMap,
+            "createdAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+        )
+    }
+
+    private var billsListener: ListenerRegistration? = null
+    private var sellersListener: ListenerRegistration? = null
+    private var buyersListener: ListenerRegistration? = null
+    private var brokersListener: ListenerRegistration? = null
+    private var paymentsListener: ListenerRegistration? = null
+    private var auditLogsListener: ListenerRegistration? = null
+    private var firmsListener: ListenerRegistration? = null
+
+    fun getSanitizedFirmId(name: String): String {
+        val trimmed = name.trim()
+        if (trimmed == "F001" || trimmed.contains("Lalit", ignoreCase = true) || trimmed.replace(" ", "") == "LalitRiceBroker") {
+            return "F001"
+        }
+        if (trimmed == "F002" || trimmed.contains("Krishna", ignoreCase = true) || trimmed.replace(" ", "") == "HareKrishnaRiceBroker") {
+            return "F002"
+        }
+        return trimmed.replace(" ", "").replace("[^a-zA-Z0-9]".toRegex(), "")
+    }
 
     /**
      * Checks if Firebase is initialized.
@@ -41,15 +136,13 @@ object FirebaseService {
     }
 
     /**
-     * Authenticate a user against the Realtime Database "users" node.
+     * Authenticate a user using Firebase Authentication (Email + Password) and Firestore user profile.
      */
     suspend fun authenticateUser(
         context: Context,
-        usernameInput: String,
+        emailInput: String,
         passwordInput: String
     ): Result<FirestoreUser> {
-        // 1. Initialize Firebase before any login call
-        // 2. Verify Firebase.initializeApp() completes successfully
         var isInitialized = false
         try {
             val app = FirebaseApp.initializeApp(context)
@@ -66,8 +159,6 @@ object FirebaseService {
                 }
             } catch (ex: Exception) {
                 Log.d(TAG, "Firebase Exception: ${ex.message}")
-                Log.e(TAG, "Stack Trace", ex)
-                ex.printStackTrace()
             }
         }
 
@@ -75,166 +166,175 @@ object FirebaseService {
             return Result.failure(Exception("Firebase initialization failed."))
         }
 
-        val enteredUsername = usernameInput.trim()
+        val enteredEmail = emailInput.trim()
         val enteredPassword = passwordInput.trim()
-        Log.d(TAG, "Entered Username: $enteredUsername")
+
+        if (enteredEmail.isEmpty()) {
+            return Result.failure(Exception("Invalid email"))
+        }
 
         return try {
-            // 3. Use the correct Realtime Database URL from firebase_options/google-services configuration.
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            Log.d(TAG, "Database URL: $dbUrl")
+            val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
+            val authResult = auth.signInWithEmailAndPassword(enteredEmail, enteredPassword).await()
+            val firebaseUser = authResult.user ?: return Result.failure(Exception("Authentication failed"))
 
-            val db = FirebaseDatabase.getInstance(dbUrl)
-            
-            // 4. Read ONLY the "/users" node.
-            Log.d(TAG, "Reading /users")
-            val snapshot = db.getReference("users").get().await()
-            val children = snapshot.children.toList()
-            val loadedCount = children.size
-            
-            // Log loaded count
-            Log.d(TAG, "Users Loaded Count: $loadedCount")
+            val db = FirebaseFirestore.getInstance()
+            val uid = firebaseUser.uid
+            val userDocRef = db.collection("users").document(uid)
+            var doc = userDocRef.get().await()
 
-            var matchedUser: FirestoreUser? = null
-            var matchedChild: com.google.firebase.database.DataSnapshot? = null
-
-            for (child in children) {
-                val u = child.child("username").getValue(String::class.java) ?: ""
-                val p = child.child("password").getValue(String::class.java) ?: ""
-                
-                val activeVal = child.child("active").value
-                val isActive = when (activeVal) {
-                    is Boolean -> activeVal
-                    is String -> activeVal.toBoolean()
-                    is Number -> activeVal.toInt() != 0
-                    else -> true
-                }
-
-                // Log checking user
-                Log.d(TAG, "Current User Checking: $u")
-
-                // 10. Compare enteredUsername.trim() == username (ignoring case for safety, matching exact trim value)
-                if (u.trim().equals(enteredUsername, ignoreCase = true)) {
-                    Log.d(TAG, "Username Matched: $u")
-                    if (p == enteredPassword) {
-                        Log.d(TAG, "Password Matched")
-                        if (!isActive) {
-                            Log.d(TAG, "Login Failed: User $u is inactive")
-                            return Result.failure(Exception("Your account is disabled."))
-                        }
-
-                        // Save the matched child snapshot for separate loading of firmAccess
-                        matchedChild = child
-                        break
-                    }
-                }
-            }
-
-            if (matchedChild != null) {
-                val u = matchedChild.child("username").getValue(String::class.java) ?: ""
-                val p = matchedChild.child("password").getValue(String::class.java) ?: ""
-                val r = matchedChild.child("role").getValue(String::class.java) ?: "Viewer"
-                
-                val activeVal = matchedChild.child("active").value
-                val isActive = when (activeVal) {
-                    is Boolean -> activeVal
-                    is String -> activeVal.toBoolean()
-                    is Number -> activeVal.toInt() != 0
-                    else -> true
-                }
-
-                // Only after successful login, load firmAccess separately.
-                Log.d(TAG, "Loading firmAccess separately")
-                var fa = ""
-                try {
-                    val firmAccessSnapshot = matchedChild.child("firmAccess")
-                    val value = firmAccessSnapshot.value
-                    if (value != null) {
-                        if (value is List<*>) {
-                            // Read it as List<String>
-                            val t = object : com.google.firebase.database.GenericTypeIndicator<List<String>>() {}
-                            val list = firmAccessSnapshot.getValue(t)
-                            if (list != null) {
-                                fa = list.filterNotNull().joinToString(", ")
-                            } else {
-                                fa = value.filterNotNull().map { it.toString() }.joinToString(", ")
-                            }
-                        } else if (value is String) {
-                            fa = value
-                        } else {
-                            fa = value.toString()
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error parsing firmAccess separately, fallback to empty/string", e)
-                    try {
-                        fa = matchedChild.child("firmAccess").getValue(String::class.java) ?: ""
-                    } catch (ex: Exception) {
-                        Log.e(TAG, "Fallback parsing also failed", ex)
-                    }
-                }
-
-                matchedUser = FirestoreUser(
-                    username = u,
-                    password = p,
-                    fullName = u,
-                    role = r,
-                    firmAccess = fa,
-                    isActive = isActive,
-                    lastLogin = Date(),
-                    createdAt = Date()
+            // 9. On first successful login: If user document does not exist: Create it automatically.
+            if (!doc.exists()) {
+                val fullName = enteredEmail.substringBefore("@")
+                val defaultUser = hashMapOf(
+                    "fullName" to fullName,
+                    "email" to enteredEmail,
+                    "active" to true,
+                    "assignedFirms" to emptyList<String>(),
+                    "createdAt" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+                    "lastLogin" to com.google.firebase.firestore.FieldValue.serverTimestamp()
                 )
+                userDocRef.set(defaultUser).await()
+                doc = userDocRef.get().await()
+            } else {
+                userDocRef.update("lastLogin", com.google.firebase.firestore.FieldValue.serverTimestamp()).await()
             }
 
-            if (matchedUser != null) {
-                Log.d(TAG, "Login Success")
-                Result.success(matchedUser)
+            // Check if active is false
+            val active = doc.getBoolean("active") ?: doc.getBoolean("isActive") ?: true
+            if (!active) {
+                return Result.failure(Exception("Account Disabled"))
+            }
+
+            // Check email verification (Requirement 6)
+            if (!firebaseUser.isEmailVerified) {
+                return Result.failure(Exception("Please verify your email before logging in."))
+            }
+
+            val fullName = doc.getString("fullName") ?: enteredEmail.substringBefore("@")
+            val assignedFirms = try {
+                doc.get("assignedFirms") as? List<*>
+            } catch (e: Exception) {
+                null
+            }?.filterIsInstance<String>() ?: emptyList()
+
+            val firestoreUser = FirestoreUser(
+                fullName = fullName,
+                email = enteredEmail,
+                active = active,
+                assignedFirms = assignedFirms,
+                createdAt = doc.getDate("createdAt"),
+                lastLogin = doc.getDate("lastLogin") ?: java.util.Date()
+            )
+
+            Log.d(TAG, "Login Success for user UID: $uid")
+            Result.success(firestoreUser)
+        } catch (e: com.google.firebase.auth.FirebaseAuthInvalidUserException) {
+            Result.failure(Exception("User not found"))
+        } catch (e: com.google.firebase.auth.FirebaseAuthInvalidCredentialsException) {
+            Result.failure(Exception("Incorrect password"))
+        } catch (e: com.google.firebase.FirebaseNetworkException) {
+            Result.failure(Exception("No internet"))
+        } catch (e: Exception) {
+            val msg = e.message ?: ""
+            when {
+                msg.contains("disabled", ignoreCase = true) -> Result.failure(Exception("Account Disabled"))
+                msg.contains("invalid-email", ignoreCase = true) || msg.contains("badly formatted", ignoreCase = true) -> Result.failure(Exception("Invalid email"))
+                msg.contains("wrong-password", ignoreCase = true) -> Result.failure(Exception("Incorrect password"))
+                else -> Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun sendVerificationEmail(): Result<Unit> {
+        return try {
+            val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+            if (user != null) {
+                user.sendEmailVerification().await()
+                Result.success(Unit)
             } else {
-                Log.d(TAG, "Login Failed: Invalid credentials for $enteredUsername")
-                Result.failure(Exception("Invalid Username or Password"))
+                Result.failure(Exception("No user logged in"))
             }
         } catch (e: Exception) {
-            Log.d(TAG, "Firebase Exception: ${e.message}")
-            Log.e(TAG, "Stack Trace", e)
-            e.printStackTrace()
+            Result.failure(e)
+        }
+    }
+
+    suspend fun sendPasswordResetEmail(email: String): Result<Unit> {
+        return try {
+            com.google.firebase.auth.FirebaseAuth.getInstance().sendPasswordResetEmail(email.trim()).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchUserProfile(uid: String, email: String): Result<FirestoreUser> {
+        return try {
+            val db = FirebaseFirestore.getInstance()
+            val userDocRef = db.collection("users").document(uid)
+            var doc = userDocRef.get().await()
+
+            if (!doc.exists()) {
+                val fullName = email.substringBefore("@")
+                val defaultUser = hashMapOf(
+                    "fullName" to fullName,
+                    "email" to email,
+                    "active" to true,
+                    "assignedFirms" to emptyList<String>(),
+                    "createdAt" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+                    "lastLogin" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                )
+                userDocRef.set(defaultUser).await()
+                doc = userDocRef.get().await()
+            }
+
+            val active = doc.getBoolean("active") ?: doc.getBoolean("isActive") ?: true
+            if (!active) {
+                return Result.failure(Exception("Account Disabled"))
+            }
+
+            val fullName = doc.getString("fullName") ?: email.substringBefore("@")
+            val assignedFirms = try {
+                doc.get("assignedFirms") as? List<*>
+            } catch (e: Exception) {
+                null
+            }?.filterIsInstance<String>() ?: emptyList()
+
+            val firestoreUser = FirestoreUser(
+                fullName = fullName,
+                email = email,
+                active = active,
+                assignedFirms = assignedFirms,
+                createdAt = doc.getDate("createdAt"),
+                lastLogin = doc.getDate("lastLogin") ?: java.util.Date()
+            )
+            activeUserProfile = firestoreUser
+            Result.success(firestoreUser)
+        } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
     /**
-     * Store login audit records in the Realtime Database "audit_logs" node.
+     * Store login audit records in the Firestore "audit_logs" collection.
      */
     suspend fun saveLoginAuditLog(context: Context, username: String) {
         if (!isFirebaseInitialized(context)) return
 
         try {
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            val db = FirebaseDatabase.getInstance(dbUrl)
-            val sdfDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-            val sdfTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-            val now = Date()
-
-            val auditData = hashMapOf(
-                "userName" to username,
-                "action" to "Login",
-                "date" to sdfDate.format(now),
-                "time" to sdfTime.format(now),
-                "device" to Build.MODEL
+            val db = FirebaseFirestore.getInstance()
+            val auditData = buildNewAuditLogMap(
+                action = "Login",
+                screen = "Login Screen",
+                userEmailInput = username,
+                detailsInput = "User login successful"
             )
 
-            // Save to /audit_logs with a unique push key
-            db.getReference("audit_logs").push().setValue(auditData).await()
-            Log.d(TAG, "Audit log saved successfully to RTDB for user: $username")
+            db.collection("audit_logs").add(auditData).await()
+            Log.d(TAG, "Audit log saved successfully to Firestore for user: $username")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to write audit log to Realtime Database", e)
+            Log.e(TAG, "Failed to write audit log to Firestore", e)
         }
     }
 
@@ -259,78 +359,48 @@ object FirebaseService {
         details: String
     ) {
         try {
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            val db = FirebaseDatabase.getInstance(dbUrl)
-            val logsRef = db.getReference("logs")
+            val db = FirebaseFirestore.getInstance()
+            val logsColl = db.collection("audit_logs")
 
-            // Find the next LOG_xxxxx sequence number
-            val snapshot = logsRef.get().await()
-            var maxSeq = 0
-            for (child in snapshot.children) {
-                val key = child.key ?: ""
-                if (key.startsWith("LOG_")) {
-                    val numStr = key.substring(4)
-                    val num = numStr.toIntOrNull()
-                    if (num != null && num > maxSeq) {
-                        maxSeq = num
-                    }
-                }
-            }
-            val nextSeq = maxSeq + 1
-            val nextKey = String.format("LOG_%06d", nextSeq)
-
-            val logData = hashMapOf(
-                "action" to action,
-                "billNo" to (billNo.toIntOrNull() ?: billNo),
-                "firm" to firm,
-                "user" to user,
-                "role" to role,
-                "time" to com.google.firebase.database.ServerValue.TIMESTAMP,
-                "device" to "Android",
-                "details" to details
+            val logData = buildNewAuditLogMap(
+                action = action,
+                screen = "System Log",
+                firmNameInput = firm,
+                userEmailInput = user,
+                userRoleInput = role,
+                billNo = billNo,
+                detailsInput = details,
+                oldValueInput = details
             )
 
-            logsRef.child(nextKey).setValue(logData).await()
-            Log.d(TAG, "Log written to Firebase successfully: $nextKey")
+            logsColl.add(logData).await()
+            Log.d(TAG, "Log written to Firestore global audit_logs successfully")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to write log to Firebase", e)
+            Log.e(TAG, "Failed to write log to Firestore", e)
         }
     }
 
     suspend fun logAuditLogToFirebase(log: AuditLog) {
         try {
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            val db = FirebaseDatabase.getInstance(dbUrl)
-            val auditLogRef = db.getReference("audit_logs")
-            val key = auditLogRef.push().key ?: java.util.UUID.randomUUID().toString()
+            val db = FirebaseFirestore.getInstance()
+            val logsColl = db.collection("audit_logs")
 
-            val logData = hashMapOf(
-                "userName" to log.userName,
-                "userRole" to log.userRole,
-                "date" to log.date,
-                "time" to log.time,
-                "screen" to log.screen,
-                "action" to log.action,
-                "firmName" to log.firmName,
-                "oldValue" to log.oldValue,
-                "newValue" to log.newValue,
-                "device" to log.device,
-                "ipSessionId" to log.ipSessionId,
-                "billNo" to log.billNo,
-                "partyName" to log.partyName
+            val logData = buildNewAuditLogMap(
+                action = log.action,
+                screen = log.screen,
+                firmNameInput = log.firmName,
+                userEmailInput = log.userName,
+                userRoleInput = log.userRole,
+                billNo = log.billNo,
+                partyName = log.partyName,
+                oldValueInput = log.oldValue,
+                newValueInput = log.newValue,
+                detailsInput = if (log.oldValue.isNotBlank() || log.newValue.isNotBlank()) "" else "${log.action} ${log.screen}"
             )
-            auditLogRef.child(key).setValue(logData).await()
-            Log.d(TAG, "Audit log written to Firebase successfully: $key")
+            logsColl.add(logData).await()
+            Log.d(TAG, "Audit log written to Firestore global audit_logs successfully")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to write audit log to Firebase", e)
+            Log.e(TAG, "Failed to write audit log to Firestore", e)
         }
     }
 
@@ -342,13 +412,8 @@ object FirebaseService {
     ): Boolean {
         if (!isFirebaseInitialized(context)) return false
         try {
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            val db = FirebaseDatabase.getInstance(dbUrl)
-            val firmPath = bill.firmName.replace(" ", "")
+            val db = FirebaseFirestore.getInstance()
+            val firmPath = getSanitizedFirmId(bill.firmName)
             val billKey = getBillNodeKey(bill.billNumber)
 
             val billData = hashMapOf(
@@ -417,32 +482,29 @@ object FirebaseService {
                 "eb" to bill.eb,
                 "createdBy" to user,
                 "createdRole" to role,
-                "createdTime" to com.google.firebase.database.ServerValue.TIMESTAMP,
+                "createdTime" to FieldValue.serverTimestamp(),
                 "lastUpdatedBy" to user,
-                "lastUpdatedTime" to com.google.firebase.database.ServerValue.TIMESTAMP,
+                "lastUpdatedTime" to FieldValue.serverTimestamp(),
                 "status" to "Active"
             )
 
-            db.getReference("firms/$firmPath/bills/$billKey").setValue(billData).await()
+            db.collection("firms").document(firmPath)
+                .collection("contracts").document(billKey)
+                .set(billData).await()
 
-            // Automatically check/insert masterData autocomplete fields
-            val masterRef = db.getReference("masterData")
-            if (bill.sellerName.isNotBlank()) masterRef.child("sellers").child(bill.sellerName).setValue(true)
-            if (bill.buyerName.isNotBlank()) masterRef.child("buyers").child(bill.buyerName).setValue(true)
+            // Automatically check/insert settings autocomplete fields under firm path
+            val settingsColl = db.collection("firms").document(firmPath).collection("settings")
             if (bill.transport.isNotBlank()) {
-                masterRef.child("transports").child(bill.transport).setValue(true)
-                masterRef.child("transport").child(bill.transport).setValue(true)
+                settingsColl.document("transports").set(mapOf(bill.transport to true), SetOptions.merge())
             }
             if (bill.brand.isNotBlank()) {
-                masterRef.child("brands").child(bill.brand).setValue(true)
+                settingsColl.document("brands").set(mapOf(bill.brand to true), SetOptions.merge())
             }
             if (bill.mobileNo.isNotBlank()) {
-                masterRef.child("mobileNumbers").child(bill.mobileNo).setValue(true)
-                masterRef.child("mobile_numbers").child(bill.mobileNo).setValue(true)
+                settingsColl.document("mobileNumbers").set(mapOf(bill.mobileNo to true), SetOptions.merge())
             }
             if (bill.gstNo.isNotBlank()) {
-                masterRef.child("gstNumbers").child(bill.gstNo).setValue(true)
-                masterRef.child("gst_numbers").child(bill.gstNo).setValue(true)
+                settingsColl.document("gstNumbers").set(mapOf(bill.gstNo to true), SetOptions.merge())
             }
 
             // Write Log Action
@@ -458,7 +520,7 @@ object FirebaseService {
 
             return true
         } catch (e: Exception) {
-            Log.e(TAG, "Error saving bill to Firebase", e)
+            Log.e(TAG, "Error saving bill to Firestore", e)
             return false
         }
     }
@@ -472,13 +534,8 @@ object FirebaseService {
     ): Boolean {
         if (!isFirebaseInitialized(context)) return false
         try {
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            val db = FirebaseDatabase.getInstance(dbUrl)
-            val firmPath = newBill.firmName.replace(" ", "")
+            val db = FirebaseFirestore.getInstance()
+            val firmPath = getSanitizedFirmId(newBill.firmName)
             val billKey = getBillNodeKey(newBill.billNumber)
 
             val billData = hashMapOf(
@@ -545,34 +602,31 @@ object FirebaseService {
                 "brokerName" to newBill.brokerName,
                 "brokerId" to newBill.brokerId,
                 "eb" to newBill.eb,
-                "createdBy" to (oldBill?.sellerName ?: user), // reuse some placeholder if not saved
+                "createdBy" to (oldBill?.sellerName ?: user),
                 "createdRole" to role,
-                "createdTime" to com.google.firebase.database.ServerValue.TIMESTAMP,
+                "createdTime" to FieldValue.serverTimestamp(),
                 "lastUpdatedBy" to user,
-                "lastUpdatedTime" to com.google.firebase.database.ServerValue.TIMESTAMP,
+                "lastUpdatedTime" to FieldValue.serverTimestamp(),
                 "status" to "Active"
             )
 
-            db.getReference("firms/$firmPath/bills/$billKey").setValue(billData).await()
+            db.collection("firms").document(firmPath)
+                .collection("contracts").document(billKey)
+                .set(billData).await()
 
-            // Autocomplete update for masterData
-            val masterRef = db.getReference("masterData")
-            if (newBill.sellerName.isNotBlank()) masterRef.child("sellers").child(newBill.sellerName).setValue(true)
-            if (newBill.buyerName.isNotBlank()) masterRef.child("buyers").child(newBill.buyerName).setValue(true)
+            // Automatically check/insert settings autocomplete fields under firm path
+            val settingsColl = db.collection("firms").document(firmPath).collection("settings")
             if (newBill.transport.isNotBlank()) {
-                masterRef.child("transports").child(newBill.transport).setValue(true)
-                masterRef.child("transport").child(newBill.transport).setValue(true)
+                settingsColl.document("transports").set(mapOf(newBill.transport to true), SetOptions.merge())
             }
             if (newBill.brand.isNotBlank()) {
-                masterRef.child("brands").child(newBill.brand).setValue(true)
+                settingsColl.document("brands").set(mapOf(newBill.brand to true), SetOptions.merge())
             }
             if (newBill.mobileNo.isNotBlank()) {
-                masterRef.child("mobileNumbers").child(newBill.mobileNo).setValue(true)
-                masterRef.child("mobile_numbers").child(newBill.mobileNo).setValue(true)
+                settingsColl.document("mobileNumbers").set(mapOf(newBill.mobileNo to true), SetOptions.merge())
             }
             if (newBill.gstNo.isNotBlank()) {
-                masterRef.child("gstNumbers").child(newBill.gstNo).setValue(true)
-                masterRef.child("gst_numbers").child(newBill.gstNo).setValue(true)
+                settingsColl.document("gstNumbers").set(mapOf(newBill.gstNo to true), SetOptions.merge())
             }
 
             val rateChanged = oldBill != null && oldBill.rate != newBill.rate
@@ -594,7 +648,7 @@ object FirebaseService {
 
             return true
         } catch (e: Exception) {
-            Log.e(TAG, "Error updating bill in Firebase", e)
+            Log.e(TAG, "Error updating bill in Firestore", e)
             return false
         }
     }
@@ -607,16 +661,13 @@ object FirebaseService {
     ): Boolean {
         if (!isFirebaseInitialized(context)) return false
         try {
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            val db = FirebaseDatabase.getInstance(dbUrl)
-            val firmPath = bill.firmName.replace(" ", "")
+            val db = FirebaseFirestore.getInstance()
+            val firmPath = getSanitizedFirmId(bill.firmName)
             val billKey = getBillNodeKey(bill.billNumber)
 
-            db.getReference("firms/$firmPath/bills/$billKey").removeValue().await()
+            db.collection("firms").document(firmPath)
+                .collection("contracts").document(billKey)
+                .delete().await()
 
             logActionToFirebase(
                 context = context,
@@ -630,7 +681,7 @@ object FirebaseService {
 
             return true
         } catch (e: Exception) {
-            Log.e(TAG, "Error deleting bill in Firebase", e)
+            Log.e(TAG, "Error deleting bill in Firestore", e)
             return false
         }
     }
@@ -643,22 +694,18 @@ object FirebaseService {
     ): Boolean {
         if (!isFirebaseInitialized(context)) return false
         try {
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            val db = FirebaseDatabase.getInstance(dbUrl)
-            val paymentsRef = db.getReference("payments")
+            val db = FirebaseFirestore.getInstance()
+            val firmPath = getSanitizedFirmId(payment.firm)
+            val paymentsColl = db.collection("firms").document(firmPath).collection("payments")
 
             val paymentId = payment.paymentId.ifBlank {
-                paymentsRef.push().key ?: java.util.UUID.randomUUID().toString()
+                paymentsColl.document().id
             }
 
             val timestamp = if (payment.timestamp > 0L) payment.timestamp else System.currentTimeMillis()
             val createdAt = payment.createdAt.ifBlank {
                 payment.paymentDate.ifBlank {
-                    java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+                    SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
                 }
             }
 
@@ -682,7 +729,6 @@ object FirebaseService {
                 "referenceNumber" to payment.referenceNumber,
                 "receivedBy" to user,
                 "receivedTime" to timestamp,
-                // Standardized payment fields
                 "billAmount" to payment.billAmount,
                 "receivedAmount" to payment.paymentAmount,
                 "discount" to payment.discountAmount,
@@ -692,17 +738,19 @@ object FirebaseService {
                 "balanceAmount" to payment.pendingAmount
             )
 
-            paymentsRef.child(paymentId).setValue(paymentData).await()
-            Log.d("FirebaseService", "Payment Saved: $paymentId")
+            paymentsColl.document(paymentId).set(paymentData).await()
+            Log.d("FirebaseService", "Payment Saved to Firestore: $paymentId")
 
-            // Also ensure buyer is in masterData
+            // Also ensure buyer is in settings
             if (payment.buyerName.isNotBlank()) {
-                db.getReference("masterData/buyers").child(payment.buyerName).setValue(true)
+                db.collection("firms").document(firmPath)
+                    .collection("settings").document("buyers")
+                    .set(mapOf(payment.buyerName to true), SetOptions.merge())
             }
 
             return true
         } catch (e: Exception) {
-            Log.e(TAG, "Error saving payment to Firebase", e)
+            Log.e(TAG, "Error saving payment to Firestore", e)
             return false
         }
     }
@@ -716,20 +764,21 @@ object FirebaseService {
     ): Boolean {
         if (!isFirebaseInitialized(context)) return false
         try {
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            val db = FirebaseDatabase.getInstance(dbUrl)
-            
-            val updates = hashMapOf<String, Any?>()
-            
-            val firmPath = bill.firmName.replace(" ", "")
+            val db = FirebaseFirestore.getInstance()
+            val batch = db.batch()
+
+            val firmPath = getSanitizedFirmId(bill.firmName)
             val billKey = getBillNodeKey(bill.billNumber)
-            val billPath = "firms/$firmPath/bills/$billKey"
-            val paymentPath = "payments/${newPayment.paymentId}"
-            
+
+            val billRef = db.collection("firms").document(firmPath)
+                .collection("contracts").document(billKey)
+
+            val paymentRef = db.collection("firms").document(firmPath)
+                .collection("payments").document(newPayment.paymentId)
+
+            val buyerSettingRef = db.collection("firms").document(firmPath)
+                .collection("settings").document("buyers")
+
             val billData = hashMapOf(
                 "billNo" to (bill.billNumber.toIntOrNull() ?: bill.billNumber),
                 "billNumber" to bill.billNumber,
@@ -777,12 +826,12 @@ object FirebaseService {
                 "brokerId" to bill.brokerId,
                 "createdBy" to (bill.sellerName.ifBlank { user }),
                 "createdRole" to role,
-                "createdTime" to com.google.firebase.database.ServerValue.TIMESTAMP,
+                "createdTime" to FieldValue.serverTimestamp(),
                 "lastUpdatedBy" to user,
-                "lastUpdatedTime" to com.google.firebase.database.ServerValue.TIMESTAMP,
+                "lastUpdatedTime" to FieldValue.serverTimestamp(),
                 "status" to "Active"
             )
-            
+
             val paymentData = hashMapOf(
                 "paymentId" to newPayment.paymentId,
                 "buyerId" to newPayment.buyerId.ifBlank { newPayment.buyerName },
@@ -814,7 +863,6 @@ object FirebaseService {
                 "pendingAmount" to newPayment.pendingAmount,
                 "updatedAt" to newPayment.updatedAt,
                 "updatedBy" to newPayment.updatedBy,
-                // New required Firebase fields
                 "billAmount" to bill.billAmount,
                 "receivedAmount" to newPayment.paymentAmount,
                 "discount" to newPayment.discountAmount,
@@ -823,28 +871,29 @@ object FirebaseService {
                 "remark" to newPayment.remarks2,
                 "balanceAmount" to newPayment.pendingAmount
             )
-            
-            updates[billPath] = billData
-            updates[paymentPath] = paymentData
-            updates["masterData/buyers/${newPayment.buyerName}"] = true
-            
-            val auditLogId = db.getReference("audit_logs").push().key ?: java.util.UUID.randomUUID().toString()
-            val auditData = hashMapOf(
-                "userName" to user,
-                "date" to java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date()),
-                "time" to java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date()),
-                "screen" to "Party Ledger Dialog",
-                "action" to "EDIT_PAYMENT_TRANSACTION",
-                "oldValue" to "Received: ${bill.totalReceived - newPayment.paymentAmount}, Pending: ${bill.remainingBalance + newPayment.paymentAmount}",
-                "newValue" to "Received: ${bill.totalReceived}, Pending: ${bill.remainingBalance}",
-                "device" to "Android SDK " + android.os.Build.VERSION.SDK_INT
+
+            batch.set(billRef, billData)
+            batch.set(paymentRef, paymentData)
+            batch.set(buyerSettingRef, mapOf(newPayment.buyerName to true), SetOptions.merge())
+
+            // Create Audit log inside global audit_logs collection
+            val auditLogRef = db.collection("audit_logs").document()
+            val auditData = buildNewAuditLogMap(
+                action = "EDIT_PAYMENT_TRANSACTION",
+                screen = "Party Ledger Dialog",
+                firmNameInput = bill.firmName,
+                userEmailInput = user,
+                userRoleInput = role,
+                oldValueInput = "Received: ${bill.totalReceived - newPayment.paymentAmount}, Pending: ${bill.remainingBalance + newPayment.paymentAmount}",
+                newValueInput = "Received: ${bill.totalReceived}, Pending: ${bill.remainingBalance}",
+                detailsInput = "Edited Payment Transaction details"
             )
-            updates["audit_logs/$auditLogId"] = auditData
-            
-            db.getReference().updateChildren(updates).await()
+            batch.set(auditLogRef, auditData)
+
+            batch.commit().await()
             return true
         } catch (e: Exception) {
-            Log.e(TAG, "Transaction multi-path update failed", e)
+            Log.e(TAG, "Transaction multi-path update failed in Firestore", e)
             return false
         }
     }
@@ -855,20 +904,18 @@ object FirebaseService {
     ): Boolean {
         if (!isFirebaseInitialized(context)) return false
         try {
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            val db = FirebaseDatabase.getInstance(dbUrl)
-            val paymentsRef = db.getReference("payments")
+            val db = FirebaseFirestore.getInstance()
+            val firmPath = getSanitizedFirmId(payment.firm)
             val paymentKey = payment.paymentId.ifBlank { String.format("PAYMENT_%06d", payment.id) }
-            
-            paymentsRef.child(paymentKey).removeValue().await()
+
+            db.collection("firms").document(firmPath)
+                .collection("payments").document(paymentKey)
+                .delete().await()
+
             Log.d("FirebaseService", "Payment Deleted: $paymentKey")
             return true
         } catch (e: Exception) {
-            Log.e(TAG, "Error deleting payment in Firebase", e)
+            Log.e(TAG, "Error deleting payment in Firestore", e)
             return false
         }
     }
@@ -881,29 +928,25 @@ object FirebaseService {
         gstNo: String,
         millName: String,
         address: String,
-        user: String
+        user: String,
+        firmName: String = ""
     ): Pair<Boolean, String?> {
         if (!isFirebaseInitialized(context)) return Pair(false, "Firebase not initialized")
         try {
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            val db = FirebaseDatabase.getInstance(dbUrl)
-            val sellersRef = db.getReference("masterData/sellers")
+            val db = FirebaseFirestore.getInstance()
+            val firmPath = if (firmName.isNotBlank()) getSanitizedFirmId(firmName) else "F001"
+            val sellersColl = db.collection("firms").document(firmPath).collection("sellers")
 
-            // Duplicate Check: Check if a seller with the same name already exists (case-insensitive)
-            val snapshot = sellersRef.get().await()
-            for (child in snapshot.children) {
-                val existingName = child.child("sellerName").getValue(String::class.java)
+            val snapshot = sellersColl.get().await()
+            for (doc in snapshot.documents) {
+                val existingName = doc.getString("sellerName")
                 if (existingName != null && existingName.equals(sellerName, ignoreCase = true)) {
                     return Pair(false, "Seller already exists.")
                 }
             }
 
-            val newRef = sellersRef.push()
-            val sellerId = newRef.key ?: ""
+            val newDocRef = sellersColl.document()
+            val sellerId = newDocRef.id
 
             val sellerData = hashMapOf(
                 "sellerId" to sellerId,
@@ -914,18 +957,17 @@ object FirebaseService {
                 "millName" to millName,
                 "address" to address,
                 "createdBy" to user,
-                "createdTime" to com.google.firebase.database.ServerValue.TIMESTAMP
+                "createdTime" to FieldValue.serverTimestamp()
             )
 
-            newRef.setValue(sellerData).await()
+            newDocRef.set(sellerData).await()
 
-            // 6. LOG SYSTEM
             val logDetails = if (millName.isNotBlank()) millName else sellerName
             logActionToFirebase(
                 context = context,
                 action = "CREATE_SELLER",
                 billNo = "",
-                firm = "",
+                firm = firmName,
                 user = user,
                 role = "User",
                 details = "Added Seller Master : $logDetails"
@@ -933,7 +975,7 @@ object FirebaseService {
 
             return Pair(true, null)
         } catch (e: Exception) {
-            Log.e(TAG, "Error saving seller to Firebase", e)
+            Log.e(TAG, "Error saving seller to Firestore", e)
             return Pair(false, e.localizedMessage ?: "Unknown error")
         }
     }
@@ -943,28 +985,25 @@ object FirebaseService {
         brokerName: String,
         mobile: String,
         address: String,
-        user: String
+        user: String,
+        firmName: String = ""
     ): Pair<Boolean, String?> {
         if (!isFirebaseInitialized(context)) return Pair(false, "Firebase not initialized")
         try {
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            val db = FirebaseDatabase.getInstance(dbUrl)
-            val brokersRef = db.getReference("masterData/brokers")
+            val db = FirebaseFirestore.getInstance()
+            val firmPath = if (firmName.isNotBlank()) getSanitizedFirmId(firmName) else "F001"
+            val brokersColl = db.collection("firms").document(firmPath).collection("brokers")
 
-            val snapshot = brokersRef.get().await()
-            for (child in snapshot.children) {
-                val existingName = child.child("brokerName").getValue(String::class.java)
+            val snapshot = brokersColl.get().await()
+            for (doc in snapshot.documents) {
+                val existingName = doc.getString("brokerName")
                 if (existingName != null && existingName.equals(brokerName, ignoreCase = true)) {
                     return Pair(false, "Broker already exists.")
                 }
             }
 
-            val newRef = brokersRef.push()
-            val brokerId = newRef.key ?: ""
+            val newDocRef = brokersColl.document()
+            val brokerId = newDocRef.id
 
             val brokerData = hashMapOf(
                 "brokerId" to brokerId,
@@ -974,18 +1013,18 @@ object FirebaseService {
                 "totalBillings" to 0,
                 "totalQtls" to 0.0,
                 "createdBy" to user,
-                "createdTime" to com.google.firebase.database.ServerValue.TIMESTAMP,
+                "createdTime" to FieldValue.serverTimestamp(),
                 "updatedBy" to user,
-                "updatedTime" to com.google.firebase.database.ServerValue.TIMESTAMP
+                "updatedTime" to FieldValue.serverTimestamp()
             )
 
-            newRef.setValue(brokerData).await()
+            newDocRef.set(brokerData).await()
 
             logActionToFirebase(
                 context = context,
                 action = "CREATE_BROKER",
                 billNo = "",
-                firm = "",
+                firm = firmName,
                 user = user,
                 role = "User",
                 details = "Added Broker Master : $brokerName"
@@ -993,7 +1032,7 @@ object FirebaseService {
 
             return Pair(true, null)
         } catch (e: Exception) {
-            Log.e(TAG, "Error saving broker to Firebase", e)
+            Log.e(TAG, "Error saving broker to Firestore", e)
             return Pair(false, e.localizedMessage ?: "Unknown error")
         }
     }
@@ -1004,33 +1043,31 @@ object FirebaseService {
         brokerName: String,
         mobile: String,
         address: String,
-        user: String
+        user: String,
+        firmName: String = ""
     ): Pair<Boolean, String?> {
         if (!isFirebaseInitialized(context)) return Pair(false, "Firebase not initialized")
         try {
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            val db = FirebaseDatabase.getInstance(dbUrl)
-            val brokerRef = db.getReference("masterData/brokers").child(brokerId)
+            val db = FirebaseFirestore.getInstance()
+            val firmPath = if (firmName.isNotBlank()) getSanitizedFirmId(firmName) else "F001"
+            val brokerDoc = db.collection("firms").document(firmPath)
+                .collection("brokers").document(brokerId)
 
             val updates = hashMapOf<String, Any>(
                 "brokerName" to brokerName,
                 "mobile" to mobile,
                 "address" to address,
                 "updatedBy" to user,
-                "updatedTime" to com.google.firebase.database.ServerValue.TIMESTAMP
+                "updatedTime" to FieldValue.serverTimestamp()
             )
 
-            brokerRef.updateChildren(updates).await()
+            brokerDoc.update(updates).await()
 
             logActionToFirebase(
                 context = context,
                 action = "UPDATE_BROKER",
                 billNo = "",
-                firm = "",
+                firm = firmName,
                 user = user,
                 role = "User",
                 details = "Updated Broker Master : $brokerName"
@@ -1038,7 +1075,7 @@ object FirebaseService {
 
             return Pair(true, null)
         } catch (e: Exception) {
-            Log.e(TAG, "Error updating broker in Firebase", e)
+            Log.e(TAG, "Error updating broker in Firestore", e)
             return Pair(false, e.localizedMessage ?: "Unknown error")
         }
     }
@@ -1047,25 +1084,23 @@ object FirebaseService {
         context: Context,
         brokerId: String,
         brokerName: String,
-        user: String
+        user: String,
+        firmName: String = ""
     ): Pair<Boolean, String?> {
         if (!isFirebaseInitialized(context)) return Pair(false, "Firebase not initialized")
         try {
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            val db = FirebaseDatabase.getInstance(dbUrl)
-            val brokerRef = db.getReference("masterData/brokers").child(brokerId)
+            val db = FirebaseFirestore.getInstance()
+            val firmPath = if (firmName.isNotBlank()) getSanitizedFirmId(firmName) else "F001"
+            val brokerDoc = db.collection("firms").document(firmPath)
+                .collection("brokers").document(brokerId)
 
-            brokerRef.removeValue().await()
+            brokerDoc.delete().await()
 
             logActionToFirebase(
                 context = context,
                 action = "DELETE_BROKER",
                 billNo = "",
-                firm = "",
+                firm = firmName,
                 user = user,
                 role = "User",
                 details = "Deleted Broker Master : $brokerName"
@@ -1073,7 +1108,7 @@ object FirebaseService {
 
             return Pair(true, null)
         } catch (e: Exception) {
-            Log.e(TAG, "Error deleting broker from Firebase", e)
+            Log.e(TAG, "Error deleting broker from Firestore", e)
             return Pair(false, e.localizedMessage ?: "Unknown error")
         }
     }
@@ -1087,17 +1122,15 @@ object FirebaseService {
         gstNo: String,
         millName: String,
         address: String,
-        user: String
+        user: String,
+        firmName: String = ""
     ): Pair<Boolean, String?> {
         if (!isFirebaseInitialized(context)) return Pair(false, "Firebase not initialized")
         try {
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            val db = FirebaseDatabase.getInstance(dbUrl)
-            val sellerRef = db.getReference("masterData/sellers").child(sellerId)
+            val db = FirebaseFirestore.getInstance()
+            val firmPath = if (firmName.isNotBlank()) getSanitizedFirmId(firmName) else "F001"
+            val sellerDoc = db.collection("firms").document(firmPath)
+                .collection("sellers").document(sellerId)
 
             val sellerData = hashMapOf(
                 "sellerId" to sellerId,
@@ -1108,16 +1141,16 @@ object FirebaseService {
                 "millName" to millName,
                 "address" to address,
                 "updatedBy" to user,
-                "updatedTime" to com.google.firebase.database.ServerValue.TIMESTAMP
+                "updatedTime" to FieldValue.serverTimestamp()
             )
 
-            sellerRef.setValue(sellerData).await()
+            sellerDoc.set(sellerData, SetOptions.merge()).await()
 
             logActionToFirebase(
                 context = context,
                 action = "UPDATE_SELLER",
                 billNo = "",
-                firm = "",
+                firm = firmName,
                 user = user,
                 role = "User",
                 details = "Updated Seller Master : $sellerName"
@@ -1125,7 +1158,7 @@ object FirebaseService {
 
             return Pair(true, null)
         } catch (e: Exception) {
-            Log.e(TAG, "Error updating seller in Firebase", e)
+            Log.e(TAG, "Error updating seller in Firestore", e)
             return Pair(false, e.localizedMessage ?: "Unknown error")
         }
     }
@@ -1134,25 +1167,23 @@ object FirebaseService {
         context: Context,
         sellerId: String,
         sellerName: String,
-        user: String
+        user: String,
+        firmName: String = ""
     ): Pair<Boolean, String?> {
         if (!isFirebaseInitialized(context)) return Pair(false, "Firebase not initialized")
         try {
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            val db = FirebaseDatabase.getInstance(dbUrl)
-            val sellerRef = db.getReference("masterData/sellers").child(sellerId)
+            val db = FirebaseFirestore.getInstance()
+            val firmPath = if (firmName.isNotBlank()) getSanitizedFirmId(firmName) else "F001"
+            val sellerDoc = db.collection("firms").document(firmPath)
+                .collection("sellers").document(sellerId)
 
-            sellerRef.removeValue().await()
+            sellerDoc.delete().await()
 
             logActionToFirebase(
                 context = context,
                 action = "DELETE_SELLER",
                 billNo = "",
-                firm = "",
+                firm = firmName,
                 user = user,
                 role = "User",
                 details = "Deleted Seller Master : $sellerName"
@@ -1160,7 +1191,7 @@ object FirebaseService {
 
             return Pair(true, null)
         } catch (e: Exception) {
-            Log.e(TAG, "Error deleting seller in Firebase", e)
+            Log.e(TAG, "Error deleting seller in Firestore", e)
             return Pair(false, e.localizedMessage ?: "Unknown error")
         }
     }
@@ -1174,17 +1205,15 @@ object FirebaseService {
         gstNo: String,
         firmName: String,
         address: String,
-        user: String
+        user: String,
+        brokerFirmName: String = ""
     ): Pair<Boolean, String?> {
         if (!isFirebaseInitialized(context)) return Pair(false, "Firebase not initialized")
         try {
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            val db = FirebaseDatabase.getInstance(dbUrl)
-            val buyerRef = db.getReference("masterData/buyers").child(buyerId)
+            val db = FirebaseFirestore.getInstance()
+            val firmPath = if (brokerFirmName.isNotBlank()) getSanitizedFirmId(brokerFirmName) else "F001"
+            val buyerDoc = db.collection("firms").document(firmPath)
+                .collection("buyers").document(buyerId)
 
             val buyerData = hashMapOf(
                 "buyerId" to buyerId,
@@ -1195,16 +1224,16 @@ object FirebaseService {
                 "firmName" to firmName,
                 "address" to address,
                 "updatedBy" to user,
-                "updatedTime" to com.google.firebase.database.ServerValue.TIMESTAMP
+                "updatedTime" to FieldValue.serverTimestamp()
             )
 
-            buyerRef.setValue(buyerData).await()
+            buyerDoc.set(buyerData, SetOptions.merge()).await()
 
             logActionToFirebase(
                 context = context,
                 action = "UPDATE_BUYER",
                 billNo = "",
-                firm = "",
+                firm = brokerFirmName,
                 user = user,
                 role = "User",
                 details = "Updated Buyer Master : $buyerName"
@@ -1212,7 +1241,7 @@ object FirebaseService {
 
             return Pair(true, null)
         } catch (e: Exception) {
-            Log.e(TAG, "Error updating buyer in Firebase", e)
+            Log.e(TAG, "Error updating buyer in Firestore", e)
             return Pair(false, e.localizedMessage ?: "Unknown error")
         }
     }
@@ -1221,25 +1250,23 @@ object FirebaseService {
         context: Context,
         buyerId: String,
         buyerName: String,
-        user: String
+        user: String,
+        firmName: String = ""
     ): Pair<Boolean, String?> {
         if (!isFirebaseInitialized(context)) return Pair(false, "Firebase not initialized")
         try {
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            val db = FirebaseDatabase.getInstance(dbUrl)
-            val buyerRef = db.getReference("masterData/buyers").child(buyerId)
+            val db = FirebaseFirestore.getInstance()
+            val firmPath = if (firmName.isNotBlank()) getSanitizedFirmId(firmName) else "F001"
+            val buyerDoc = db.collection("firms").document(firmPath)
+                .collection("buyers").document(buyerId)
 
-            buyerRef.removeValue().await()
+            buyerDoc.delete().await()
 
             logActionToFirebase(
                 context = context,
                 action = "DELETE_BUYER",
                 billNo = "",
-                firm = "",
+                firm = firmName,
                 user = user,
                 role = "User",
                 details = "Deleted Buyer Master : $buyerName"
@@ -1247,7 +1274,7 @@ object FirebaseService {
 
             return Pair(true, null)
         } catch (e: Exception) {
-            Log.e(TAG, "Error deleting buyer in Firebase", e)
+            Log.e(TAG, "Error deleting buyer in Firestore", e)
             return Pair(false, e.localizedMessage ?: "Unknown error")
         }
     }
@@ -1260,29 +1287,25 @@ object FirebaseService {
         gstNo: String,
         firmName: String,
         address: String,
-        user: String
+        user: String,
+        brokerFirmName: String = ""
     ): Pair<Boolean, String?> {
         if (!isFirebaseInitialized(context)) return Pair(false, "Firebase not initialized")
         try {
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            val db = FirebaseDatabase.getInstance(dbUrl)
-            val buyersRef = db.getReference("masterData/buyers")
+            val db = FirebaseFirestore.getInstance()
+            val firmPath = if (brokerFirmName.isNotBlank()) getSanitizedFirmId(brokerFirmName) else "F001"
+            val buyersColl = db.collection("firms").document(firmPath).collection("buyers")
 
-            // Duplicate Check: Check if a buyer with the same name already exists (case-insensitive)
-            val snapshot = buyersRef.get().await()
-            for (child in snapshot.children) {
-                val existingName = child.child("buyerName").getValue(String::class.java)
+            val snapshot = buyersColl.get().await()
+            for (doc in snapshot.documents) {
+                val existingName = doc.getString("buyerName")
                 if (existingName != null && existingName.equals(buyerName, ignoreCase = true)) {
                     return Pair(false, "Buyer already exists.")
                 }
             }
 
-            val newRef = buyersRef.push()
-            val buyerId = newRef.key ?: ""
+            val newDocRef = buyersColl.document()
+            val buyerId = newDocRef.id
 
             val buyerData = hashMapOf(
                 "buyerId" to buyerId,
@@ -1293,18 +1316,17 @@ object FirebaseService {
                 "firmName" to firmName,
                 "address" to address,
                 "createdBy" to user,
-                "createdTime" to com.google.firebase.database.ServerValue.TIMESTAMP
+                "createdTime" to FieldValue.serverTimestamp()
             )
 
-            newRef.setValue(buyerData).await()
+            newDocRef.set(buyerData).await()
 
-            // 6. LOG SYSTEM
             val logDetails = if (firmName.isNotBlank()) firmName else buyerName
             logActionToFirebase(
                 context = context,
                 action = "CREATE_BUYER",
                 billNo = "",
-                firm = "",
+                firm = brokerFirmName,
                 user = user,
                 role = "User",
                 details = "Added Buyer Master : $logDetails"
@@ -1312,331 +1334,506 @@ object FirebaseService {
 
             return Pair(true, null)
         } catch (e: Exception) {
-            Log.e(TAG, "Error saving buyer to Firebase", e)
+            Log.e(TAG, "Error saving buyer to Firestore", e)
             return Pair(false, e.localizedMessage ?: "Unknown error")
         }
     }
 
-    fun startSync(context: Context, appRepository: AppRepository) {
+    fun startSync(context: Context, appRepository: AppRepository, activeFirm: com.example.data.Firm? = null) {
+        val firm = activeFirm ?: appRepository.activeFirm.value
         try {
             if (!isFirebaseInitialized(context)) {
                 FirebaseApp.initializeApp(context)
             }
-            val options = FirebaseApp.getInstance().options
-            var dbUrl = options.databaseUrl
-            if (dbUrl.isNullOrEmpty()) {
-                dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            }
-            val db = FirebaseDatabase.getInstance(dbUrl)
+            val db = FirebaseFirestore.getInstance()
 
-            // Dispose previous listeners to ensure only one listener is active
-            lalitBillsListener?.let {
-                db.getReference("firms/LalitRiceBroker/bills").removeEventListener(it)
-            }
-            hareKrishnaBillsListener?.let {
-                db.getReference("firms/HareKrishnaRiceBroker/bills").removeEventListener(it)
-            }
-            paymentsListener?.let {
-                db.getReference("payments").removeEventListener(it)
-            }
-            auditLogsListener?.let {
-                db.getReference("audit_logs").removeEventListener(it)
-            }
+            // Dispose previous listeners
+            billsListener?.remove()
+            sellersListener?.remove()
+            buyersListener?.remove()
+            brokersListener?.remove()
+            paymentsListener?.remove()
+            auditLogsListener?.remove()
+            firmsListener?.remove()
 
-            // Listen to LalitRiceBroker bills
-            lalitBillsListener = object : com.google.firebase.database.ValueEventListener {
-                override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
+            // Start listening to all firms dynamically
+            firmsListener = db.collection("firms").addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e(TAG, "Error syncing firms from Firestore", error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
                     kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                         try {
-                            val list = mutableListOf<ContractBill>()
-                            for (child in snapshot.children) {
-                                val b = parseBillSnapshot(child, "Lalit Rice Broker")
-                                if (b != null) list.add(b)
+                            val list = mutableListOf<com.example.data.Firm>()
+                            for (doc in snapshot.documents) {
+                                val id = doc.id
+                                val name = doc.getString("name") ?: continue
+                                list.add(com.example.data.Firm(id = id, name = name))
                             }
-                            appRepository.syncBillsFromFirebase("Lalit Rice Broker", list)
+                            // Save firms to local database
+                            for (firmItem in list) {
+                                appRepository.insertFirmDirect(firmItem)
+                            }
                         } catch (e: Exception) {
-                            Log.e(TAG, "Error syncing LalitRiceBroker bills", e)
+                            Log.e(TAG, "Error processing firms from Firestore", e)
                         }
                     }
                 }
-                override fun onCancelled(error: com.google.firebase.database.DatabaseError) {}
             }
-            db.getReference("firms/LalitRiceBroker/bills").addValueEventListener(lalitBillsListener!!)
 
-            // Listen to HareKrishnaRiceBroker bills
-            hareKrishnaBillsListener = object : com.google.firebase.database.ValueEventListener {
-                override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
-                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                        try {
-                            val list = mutableListOf<ContractBill>()
-                            for (child in snapshot.children) {
-                                val b = parseBillSnapshot(child, "Hare Krishna Rice Broker")
-                                if (b != null) list.add(b)
-                            }
-                            appRepository.syncBillsFromFirebase("Hare Krishna Rice Broker", list)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error syncing HareKrishnaRiceBroker bills", e)
-                        }
+            // 6. Listen to Audit Logs (Global System Audit Log)
+            auditLogsListener = db.collection("audit_logs")
+                .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.e(TAG, "Error syncing global logs", error)
+                        return@addSnapshotListener
                     }
-                }
-                override fun onCancelled(error: com.google.firebase.database.DatabaseError) {}
-            }
-            db.getReference("firms/HareKrishnaRiceBroker/bills").addValueEventListener(hareKrishnaBillsListener!!)
+                    if (snapshot != null) {
+                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            try {
+                                val list = mutableListOf<AuditLog>()
+                                for (doc in snapshot.documents) {
+                                    val emailVal = doc.getString("email") ?: doc.getString("userName") ?: doc.getString("user") ?: ""
+                                    val fullNameVal = doc.getString("fullName") ?: ""
+                                    val resolvedUserName = emailVal.ifBlank { fullNameVal }
 
-            // Listen to payments
-            paymentsListener = object : com.google.firebase.database.ValueEventListener {
-                override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
-                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                        try {
-                            val list = mutableListOf<Payment>()
-                            val seenPaymentIds = mutableSetOf<String>()
-                            for (child in snapshot.children) {
-                                val p = parsePaymentSnapshot(child)
-                                if (p != null) {
-                                    if (p.paymentId.isBlank() || p.buyerName.isBlank()) {
-                                        Log.d("FirebaseService", "Duplicate Ignored: Empty paymentId or buyerName")
-                                        continue
+                                    val userRole = doc.getString("role") ?: doc.getString("userRole") ?: ""
+
+                                    // Format Timestamp to date and time strings for backward compatibility
+                                    val createdAtTimestamp = doc.getTimestamp("createdAt")
+                                    val dateStr: String
+                                    val timeStr: String
+                                    if (createdAtTimestamp != null) {
+                                        val dateObj = createdAtTimestamp.toDate()
+                                        dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(dateObj)
+                                        timeStr = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(dateObj)
+                                    } else {
+                                        val oldDate = doc.getString("date") ?: ""
+                                        val oldTime = doc.getString("time") ?: doc.getString("timeStr") ?: ""
+                                        dateStr = oldDate.ifBlank { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
+                                        timeStr = oldTime.ifBlank { SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()) }
                                     }
-                                    if (seenPaymentIds.contains(p.paymentId)) {
-                                        Log.d("FirebaseService", "Duplicate Ignored: ${p.paymentId}")
-                                        continue
+
+                                    val screen = doc.getString("screen") ?: "System Log"
+                                    val action = doc.getString("action") ?: ""
+                                    val fName = doc.getString("firmName") ?: doc.getString("firm") ?: ""
+
+                                    // Extract newValue, oldValue, device, details as map/objects and convert them to strings for local Room AuditLog fields
+                                    val detailsMap = doc.get("details") as? Map<*, *>
+                                    val oldValDoc = doc.get("oldValue")
+                                    val newValDoc = doc.get("newValue")
+                                    val deviceDoc = doc.get("device")
+
+                                    val detailsStr = when (detailsMap) {
+                                        is Map<*, *> -> detailsMap["message"]?.toString() ?: ""
+                                        else -> doc.getString("details") ?: ""
                                     }
-                                    seenPaymentIds.add(p.paymentId)
-                                    list.add(p)
+
+                                    val oldValueStr = when (oldValDoc) {
+                                        is Map<*, *> -> oldValDoc["value"]?.toString() ?: ""
+                                        is String -> oldValDoc
+                                        else -> ""
+                                    }
+
+                                    val newValueStr = when (newValDoc) {
+                                        is Map<*, *> -> newValDoc["value"]?.toString() ?: ""
+                                        is String -> newValDoc
+                                        else -> ""
+                                    }
+
+                                    val deviceStr = when (deviceDoc) {
+                                        is Map<*, *> -> {
+                                            val model = deviceDoc["model"]?.toString() ?: ""
+                                            val brand = deviceDoc["brand"]?.toString() ?: ""
+                                            val platform = deviceDoc["platform"]?.toString() ?: ""
+                                            if (model.isNotEmpty() || brand.isNotEmpty()) "$brand $model ($platform)" else platform
+                                        }
+                                        is String -> deviceDoc
+                                        else -> ""
+                                    }
+
+                                    val ipSessionId = when (detailsMap) {
+                                        is Map<*, *> -> detailsMap["sessionId"]?.toString() ?: ""
+                                        else -> doc.getString("ipSessionId") ?: ""
+                                    }
+
+                                    val billNoVal = doc.get("billNo")
+                                    val billNo = when (billNoVal) {
+                                        is Number -> billNoVal.toLong().toString()
+                                        is String -> billNoVal
+                                        else -> ""
+                                    }
+                                    val partyName = doc.getString("partyName") ?: ""
+
+                                    val logItem = AuditLog(
+                                        userName = resolvedUserName,
+                                        userRole = userRole,
+                                        date = dateStr,
+                                        time = timeStr,
+                                        screen = screen,
+                                        action = action,
+                                        firmName = fName,
+                                        oldValue = oldValueStr.ifBlank { detailsStr },
+                                        newValue = newValueStr,
+                                        device = deviceStr,
+                                        ipSessionId = ipSessionId,
+                                        billNo = billNo,
+                                        partyName = partyName
+                                    )
+                                    list.add(logItem)
                                 }
+                                appRepository.syncLogsFromFirebase(list)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error processing logs", e)
                             }
-                            // Sort payments by timestamp descending (latest first)
-                            list.sortByDescending { it.timestamp }
-                            appRepository.syncPaymentsFromFirebase(list)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error syncing payments", e)
                         }
                     }
                 }
-                override fun onCancelled(error: com.google.firebase.database.DatabaseError) {}
+
+            if (firm == null) {
+                Log.d(TAG, "No active firm selected. Waiting for firm selection.")
+                return
             }
-            db.getReference("payments").addValueEventListener(paymentsListener!!)
 
-            // Listen to audit logs
-            auditLogsListener = object : com.google.firebase.database.ValueEventListener {
-                override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
-                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                        try {
-                            val list = mutableListOf<AuditLog>()
-                            for (child in snapshot.children) {
-                                val userName = child.child("userName").getValue(String::class.java) ?: ""
-                                val userRole = child.child("userRole").getValue(String::class.java) ?: ""
-                                val date = child.child("date").getValue(String::class.java) ?: ""
-                                val time = child.child("time").getValue(String::class.java) ?: ""
-                                val screen = child.child("screen").getValue(String::class.java) ?: ""
-                                val action = child.child("action").getValue(String::class.java) ?: ""
-                                val firmName = child.child("firmName").getValue(String::class.java) ?: ""
-                                val oldValue = child.child("oldValue").getValue(String::class.java) ?: ""
-                                val newValue = child.child("newValue").getValue(String::class.java) ?: ""
-                                val device = child.child("device").getValue(String::class.java) ?: ""
-                                val ipSessionId = child.child("ipSessionId").getValue(String::class.java) ?: ""
-                                val billNo = child.child("billNo").getValue(String::class.java) ?: ""
-                                val partyName = child.child("partyName").getValue(String::class.java) ?: ""
+            val firmPath = getSanitizedFirmId(firm.name)
+            Log.d(TAG, "Starting sync for firm: ${firm.name} (path: $firmPath)")
 
-                                val log = AuditLog(
-                                    userName = userName,
-                                    userRole = userRole,
-                                    date = date,
-                                    time = time,
-                                    screen = screen,
-                                    action = action,
-                                    firmName = firmName,
-                                    oldValue = oldValue,
-                                    newValue = newValue,
-                                    device = device,
-                                    ipSessionId = ipSessionId,
-                                    billNo = billNo,
-                                    partyName = partyName
-                                )
-                                list.add(log)
+            // 1. Listen to Contracts / Bills
+            billsListener = db.collection("firms").document(firmPath).collection("contracts")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.e(TAG, "Error syncing bills for ${firm.name}", error)
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        val docCount = snapshot.size()
+                        Log.d(TAG, "[SYNC LOG] Firestore bills document count: $docCount for firm: ${firm.name}")
+                        
+                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            try {
+                                val list = mutableListOf<ContractBill>()
+                                val seenKeys = mutableSetOf<String>()
+                                val duplicateDocIds = mutableListOf<String>()
+                                
+                                for (doc in snapshot.documents) {
+                                    val b = parseBillSnapshot(doc, firm.id)
+                                    if (b != null) {
+                                        val uniqueKey = "${b.firmName}_${b.billNumber}".lowercase()
+                                        if (seenKeys.contains(uniqueKey)) {
+                                            duplicateDocIds.add(doc.id)
+                                        } else {
+                                            seenKeys.add(uniqueKey)
+                                        }
+                                        list.add(b)
+                                    }
+                                }
+                                
+                                if (duplicateDocIds.isNotEmpty()) {
+                                    Log.w(TAG, "[SYNC LOG] Detected duplicate bill numbers in Firestore snapshot: $duplicateDocIds")
+                                }
+                                Log.d(TAG, "[SYNC LOG] Active listeners: billsListener is non-null = ${billsListener != null}")
+                                appRepository.syncBillsFromFirebase(firm.id, list)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error processing bills for ${firm.name}", e)
                             }
-                            appRepository.syncLogsFromFirebase(list)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error syncing audit logs", e)
                         }
                     }
                 }
-                override fun onCancelled(error: com.google.firebase.database.DatabaseError) {}
-            }
-            db.getReference("audit_logs").addValueEventListener(auditLogsListener!!)
+
+            // 2. Listen to Sellers
+            sellersListener = db.collection("firms").document(firmPath).collection("sellers")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.e(TAG, "Error syncing sellers for ${firm.name}", error)
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            try {
+                                val list = mutableListOf<Seller>()
+                                for (doc in snapshot.documents) {
+                                    val sName = doc.getString("sellerName") ?: doc.getString("name") ?: ""
+                                    val sPhone = doc.getString("mobile") ?: doc.getString("phone") ?: ""
+                                    val sPlace = doc.getString("place") ?: ""
+                                    val sAddress = doc.getString("address") ?: ""
+                                    if (sName.isNotBlank()) {
+                                        list.add(Seller(name = sName, phone = sPhone, place = sPlace, address = sAddress, firmName = firm.id))
+                                    }
+                                }
+                                appRepository.syncSellersFromFirebase(firm.id, list)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error processing sellers for ${firm.name}", e)
+                            }
+                        }
+                    }
+                }
+
+            // 3. Listen to Buyers
+            buyersListener = db.collection("firms").document(firmPath).collection("buyers")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.e(TAG, "Error syncing buyers for ${firm.name}", error)
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            try {
+                                val list = mutableListOf<Buyer>()
+                                for (doc in snapshot.documents) {
+                                    val bName = doc.getString("buyerName") ?: doc.getString("name") ?: ""
+                                    val bPhone = doc.getString("mobile") ?: doc.getString("phone") ?: ""
+                                    val bPlace = doc.getString("place") ?: ""
+                                    val bAddress = doc.getString("address") ?: ""
+                                    if (bName.isNotBlank()) {
+                                        list.add(Buyer(name = bName, phone = bPhone, place = bPlace, address = bAddress, firmName = firm.id))
+                                    }
+                                }
+                                appRepository.syncBuyersFromFirebase(firm.id, list)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error processing buyers for ${firm.name}", e)
+                            }
+                        }
+                    }
+                }
+
+            // 4. Listen to Brokers
+            brokersListener = db.collection("firms").document(firmPath).collection("brokers")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.e(TAG, "Error syncing brokers for ${firm.name}", error)
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            try {
+                                val list = mutableListOf<Broker>()
+                                for (doc in snapshot.documents) {
+                                    val brName = doc.getString("brokerName") ?: doc.getString("name") ?: ""
+                                    val brPhone = doc.getString("mobile") ?: doc.getString("phone") ?: ""
+                                    val brAddress = doc.getString("address") ?: ""
+                                    if (brName.isNotBlank()) {
+                                        list.add(Broker(name = brName, phone = brPhone, address = brAddress, firmName = firm.id))
+                                    }
+                                }
+                                appRepository.syncBrokersFromFirebase(firm.id, list)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error processing brokers for ${firm.name}", e)
+                            }
+                        }
+                    }
+                }
+
+            // 5. Listen to Payments
+            paymentsListener = db.collection("firms").document(firmPath).collection("payments")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.e(TAG, "Error syncing payments for ${firm.name}", error)
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            try {
+                                val list = mutableListOf<Payment>()
+                                val seenPaymentIds = mutableSetOf<String>()
+                                for (doc in snapshot.documents) {
+                                    val p = parsePaymentSnapshot(doc)
+                                    if (p != null) {
+                                        if (p.paymentId.isBlank() || p.buyerName.isBlank()) {
+                                            continue
+                                        }
+                                        if (seenPaymentIds.contains(p.paymentId)) {
+                                            continue
+                                        }
+                                        seenPaymentIds.add(p.paymentId)
+                                        list.add(p)
+                                    }
+                                }
+                                list.sortByDescending { it.timestamp }
+                                appRepository.syncPaymentsFromFirebase(list)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error processing payments for ${firm.name}", e)
+                            }
+                        }
+                    }
+                }
+
         } catch (e: Exception) {
             Log.e(TAG, "Error starting sync", e)
         }
     }
 
-    private fun parseBillSnapshot(child: com.google.firebase.database.DataSnapshot, defaultFirmName: String): ContractBill? {
+    private fun parseBillSnapshot(child: com.google.firebase.firestore.DocumentSnapshot, defaultFirmName: String): ContractBill? {
         try {
-            val billNoVal = child.child("billNo").value
+            val billNoVal = child.get("billNo")
             val billNumber = when (billNoVal) {
                 is Number -> billNoVal.toLong().toString()
                 is String -> billNoVal
-                else -> child.child("billNumber").getValue(String::class.java) ?: child.key?.replace("BILL_", "") ?: ""
+                else -> child.getString("billNumber") ?: child.id.replace("BILL_", "")
             }
             if (billNumber.isBlank()) return null
 
-            val date = child.child("date").getValue(String::class.java) ?: ""
-            val sellerName = child.child("sellerName").getValue(String::class.java) ?: ""
-            val buyerName = child.child("buyerName").getValue(String::class.java) ?: ""
-            val gstNo = child.child("gstNo").getValue(String::class.java) ?: ""
-            val particulars = child.child("particulars").getValue(String::class.java) ?: "Rice Brokerage Contract booking"
-            
-            val bagsVal = child.child("bagsKg").value ?: child.child("bags").value
+            val date = child.getString("date") ?: ""
+            val sellerName = child.getString("sellerName") ?: ""
+            val buyerName = child.getString("buyerName") ?: ""
+            val gstNo = child.getString("gstNo") ?: ""
+            val particulars = child.getString("particulars") ?: "Rice Brokerage Contract booking"
+
+            val bagsVal = child.get("bagsKg") ?: child.get("bags")
             val bags = when (bagsVal) {
                 is Number -> bagsVal.toInt()
                 is String -> bagsVal.toIntOrNull() ?: 0
                 else -> 0
             }
 
-            val qtlsVal = child.child("qtls").value ?: child.child("quintals").value
+            val qtlsVal = child.get("qtls") ?: child.get("quintals")
             val quintals = when (qtlsVal) {
                 is Number -> qtlsVal.toDouble()
                 is String -> qtlsVal.toDoubleOrNull() ?: 0.0
                 else -> 0.0
             }
 
-            val rateVal = child.child("rate").value
+            val rateVal = child.get("rate")
             val rate = when (rateVal) {
                 is Number -> rateVal.toDouble()
                 is String -> rateVal.toDoubleOrNull() ?: 0.0
                 else -> 0.0
             }
 
-            val packing = child.child("packing").getValue(String::class.java) ?: "Standard 50kg Bags"
-            val transport = child.child("transport").getValue(String::class.java) ?: ""
-            val delivery = child.child("delivery").getValue(String::class.java) ?: "Immediate Mandi Delivery"
-            val lorryNo = child.child("lorryNo").getValue(String::class.java) ?: ""
-            val payment = child.child("payment").getValue(String::class.java) ?: "Within 15 Credit Days"
-            val mobileNo = child.child("mobileNo").getValue(String::class.java) ?: ""
-            val brand = child.child("brand").getValue(String::class.java) ?: ""
-            
-            val lorryFreightVal = child.child("lorryFreight").value
+            val packing = child.getString("packing") ?: "Standard 50kg Bags"
+            val transport = child.getString("transport") ?: ""
+            val delivery = child.getString("delivery") ?: "Immediate Mandi Delivery"
+            val lorryNo = child.getString("lorryNo") ?: ""
+            val payment = child.getString("payment") ?: "Within 15 Credit Days"
+            val mobileNo = child.getString("mobileNo") ?: ""
+            val brand = child.getString("brand") ?: ""
+
+            val lorryFreightVal = child.get("lorryFreight")
             val lorryFreight = when (lorryFreightVal) {
                 is Number -> lorryFreightVal.toDouble()
                 is String -> lorryFreightVal.toDoubleOrNull() ?: 0.0
                 else -> 0.0
             }
 
-            val creditDaysVal = child.child("creditDays").value
+            val creditDaysVal = child.get("creditDays")
             val creditDays = when (creditDaysVal) {
                 is Number -> creditDaysVal.toInt()
                 is String -> creditDaysVal.toIntOrNull() ?: 0
                 else -> 15
             }
 
-            val amountInWords = child.child("amountInWords").getValue(String::class.java) ?: ""
-            val sellerSignature = child.child("sellerSignature").getValue(String::class.java) ?: "Verified"
-            
-            val billAmountVal = child.child("billAmount").value
+            val amountInWords = child.getString("amountInWords") ?: ""
+            val sellerSignature = child.getString("sellerSignature") ?: "Verified"
+
+            val billAmountVal = child.get("billAmount")
             val billAmount = when (billAmountVal) {
                 is Number -> billAmountVal.toDouble()
                 is String -> billAmountVal.toDoubleOrNull() ?: 0.0
                 else -> 0.0
             }
 
-            val outstandingBalanceVal = child.child("outstandingBalance").value ?: child.child("balance").value
+            val outstandingBalanceVal = child.get("outstandingBalance") ?: child.get("balance")
             val balance = when (outstandingBalanceVal) {
                 is Number -> outstandingBalanceVal.toDouble()
                 is String -> outstandingBalanceVal.toDoubleOrNull() ?: 0.0
                 else -> 0.0
             }
 
-            val place = child.child("place").getValue(String::class.java) ?: "Raichur"
-            val bankName = child.child("bankName").getValue(String::class.java) ?: ""
-            val remarks = child.child("remarks").getValue(String::class.java) ?: ""
-            
-            val ddAmountVal = child.child("ddAmount").value
+            val place = child.getString("place") ?: "Raichur"
+            val bankName = child.getString("bankName") ?: ""
+            val remarks = child.getString("remarks") ?: ""
+
+            val ddAmountVal = child.get("ddAmount")
             val ddAmount = when (ddAmountVal) {
                 is Number -> ddAmountVal.toDouble()
                 is String -> ddAmountVal.toDoubleOrNull() ?: 0.0
                 else -> 0.0
             }
 
-            val cashCuttingVal = child.child("cashCutting").value
+            val cashCuttingVal = child.get("cashCutting")
             val cashCutting = when (cashCuttingVal) {
                 is Number -> cashCuttingVal.toDouble()
                 is String -> cashCuttingVal.toDoubleOrNull() ?: 0.0
                 else -> 0.0
             }
 
-            val firmName = child.child("firmName").getValue(String::class.java) ?: defaultFirmName
+            val firmName = getSanitizedFirmId(child.getString("firmName") ?: defaultFirmName)
 
-            val totalReceivedVal = child.child("totalReceived").value
+            val totalReceivedVal = child.get("totalReceived")
             val totalReceived = when (totalReceivedVal) {
                 is Number -> totalReceivedVal.toDouble()
                 is String -> totalReceivedVal.toDoubleOrNull() ?: 0.0
                 else -> 0.0
             }
 
-            val remainingBalanceVal = child.child("remainingBalance").value
+            val remainingBalanceVal = child.get("remainingBalance")
             val remainingBalance = when (remainingBalanceVal) {
                 is Number -> remainingBalanceVal.toDouble()
                 is String -> remainingBalanceVal.toDoubleOrNull() ?: 0.0
                 else -> 0.0
             }
 
-            val paymentStatus = child.child("paymentStatus").getValue(String::class.java) ?: "Pending"
-            val lastPaymentDate = child.child("lastPaymentDate").getValue(String::class.java) ?: ""
+            val paymentStatus = child.getString("paymentStatus") ?: "Pending"
+            val lastPaymentDate = child.getString("lastPaymentDate") ?: ""
 
-            val sellerAddress = child.child("sellerAddress").getValue(String::class.java) ?: ""
-            val buyerAddress = child.child("buyerAddress").getValue(String::class.java) ?: ""
+            val sellerAddress = child.getString("sellerAddress") ?: ""
+            val buyerAddress = child.getString("buyerAddress") ?: ""
 
-            val itemsSnap = child.child("items")
+            val itemsListObj = child.get("items")
             val parsedItemsList = mutableListOf<ContractItem>()
-            if (itemsSnap.exists()) {
-                for (itemChild in itemsSnap.children) {
-                    val particularsVal = itemChild.child("particulars").getValue(String::class.java) ?: ""
-                    val bagsVal = itemChild.child("bags").value
-                    val bagsNum = when (bagsVal) {
-                        is Number -> bagsVal.toInt()
-                        is String -> bagsVal.toIntOrNull() ?: 0
-                        else -> 0
+            if (itemsListObj is List<*>) {
+                for (itemObj in itemsListObj) {
+                    if (itemObj is Map<*, *>) {
+                        val particularsVal = itemObj["particulars"]?.toString() ?: ""
+                        val bagsVal = itemObj["bags"]
+                        val bagsNum = when (bagsVal) {
+                            is Number -> bagsVal.toInt()
+                            is String -> bagsVal.toIntOrNull() ?: 0
+                            else -> 0
+                        }
+                        val qtlsVal = itemObj["qtls"]
+                        val qtlsNum = when (qtlsVal) {
+                            is Number -> qtlsVal.toDouble()
+                            is String -> qtlsVal.toDoubleOrNull() ?: 0.0
+                            else -> 0.0
+                        }
+                        val rateVal = itemObj["rate"]
+                        val rateNum = when (rateVal) {
+                            is Number -> rateVal.toDouble()
+                            is String -> rateVal.toDoubleOrNull() ?: 0.0
+                            else -> 0.0
+                        }
+                        val packingVal = itemObj["packing"]?.toString() ?: ""
+                        parsedItemsList.add(ContractItem(particularsVal, bagsNum, packingVal, qtlsNum, rateNum))
                     }
-                    val qtlsVal = itemChild.child("qtls").value
-                    val qtlsNum = when (qtlsVal) {
-                        is Number -> qtlsVal.toDouble()
-                        is String -> qtlsVal.toDoubleOrNull() ?: 0.0
-                        else -> 0.0
-                    }
-                    val rateVal = itemChild.child("rate").value
-                    val rateNum = when (rateVal) {
-                        is Number -> rateVal.toDouble()
-                        is String -> rateVal.toDoubleOrNull() ?: 0.0
-                        else -> 0.0
-                    }
-                    val packingVal = itemChild.child("packing").getValue(String::class.java) ?: ""
-                    parsedItemsList.add(ContractItem(particularsVal, bagsNum, packingVal, qtlsNum, rateNum))
                 }
             }
             val itemsJson = if (parsedItemsList.isNotEmpty()) {
                 serializeItems(parsedItemsList)
             } else {
-                child.child("itemsJson").getValue(String::class.java) ?: ""
+                child.getString("itemsJson") ?: ""
             }
 
-            val discountPercentVal = child.child("discountPercent").value
+            val discountPercentVal = child.get("discountPercent")
             val discountPercent = when (discountPercentVal) {
                 is Number -> discountPercentVal.toDouble()
                 is String -> discountPercentVal.toDoubleOrNull() ?: 0.0
                 else -> 0.0
             }
 
-            val commissionPercentVal = child.child("commissionPercent").value
+            val commissionPercentVal = child.get("commissionPercent")
             val commissionPercent = when (commissionPercentVal) {
                 is Number -> commissionPercentVal.toDouble()
                 is String -> commissionPercentVal.toDoubleOrNull() ?: 0.0
                 else -> 0.0
             }
 
-            val remark1 = child.child("remark1").getValue(String::class.java) ?: ""
-            val remark2 = child.child("remark2").getValue(String::class.java) ?: ""
-            val brokerName = child.child("brokerName").getValue(String::class.java) ?: ""
-            val brokerId = child.child("brokerId").getValue(String::class.java) ?: ""
-            val ebVal = child.child("eb").value
+            val remark1 = child.getString("remark1") ?: ""
+            val remark2 = child.getString("remark2") ?: ""
+            val brokerName = child.getString("brokerName") ?: ""
+            val brokerId = child.getString("brokerId") ?: ""
+            val ebVal = child.get("eb")
             val eb = when (ebVal) {
                 is String -> ebVal
                 is Number -> ebVal.toString()
@@ -1644,8 +1841,7 @@ object FirebaseService {
                 else -> ""
             }
 
-            // Parse key as fallback ID to maintain uniqueness
-            val key = child.key ?: ""
+            val key = child.id
             val digits = key.filter { it.isDigit() }
             val idVal = digits.toIntOrNull() ?: (billNumber.toIntOrNull() ?: 0)
 
@@ -1700,73 +1896,70 @@ object FirebaseService {
         }
     }
 
-    private fun parsePaymentSnapshot(child: com.google.firebase.database.DataSnapshot): Payment? {
+    private fun parsePaymentSnapshot(child: com.google.firebase.firestore.DocumentSnapshot): Payment? {
         try {
-            val paymentId = child.child("paymentId").getValue(String::class.java) ?: child.key ?: ""
-            val buyerName = child.child("buyerName").getValue(String::class.java) ?: ""
+            val paymentId = child.getString("paymentId") ?: child.id
+            val buyerName = child.getString("buyerName") ?: ""
 
-            // Requirement 4: If buyerName or paymentId is empty, ignore that record.
             if (paymentId.isBlank() || buyerName.isBlank()) {
-                Log.d("FirebaseService", "Duplicate Ignored: Empty paymentId or buyerName")
                 return null
             }
 
-            val billNo = child.child("billNo").getValue(String::class.java) ?: ""
-            val firm = child.child("firm").getValue(String::class.java) ?: child.child("firmName").getValue(String::class.java) ?: ""
-            val sellerName = child.child("sellerName").getValue(String::class.java) ?: ""
-            val buyerId = child.child("buyerId").getValue(String::class.java) ?: buyerName
-            
-            val amtVal = child.child("amount").value ?: child.child("paymentAmount").value ?: child.child("receivedAmount").value
+            val billNo = child.getString("billNo") ?: ""
+            val firm = child.getString("firm") ?: child.getString("firmName") ?: ""
+            val sellerName = child.getString("sellerName") ?: ""
+            val buyerId = child.getString("buyerId") ?: buyerName
+
+            val amtVal = child.get("amount") ?: child.get("paymentAmount") ?: child.get("receivedAmount")
             val paymentAmount = when (amtVal) {
                 is Number -> amtVal.toDouble()
                 is String -> amtVal.toDoubleOrNull() ?: 0.0
                 else -> 0.0
             }
 
-            val createdAt = child.child("createdAt").getValue(String::class.java) ?: child.child("paymentDate").getValue(String::class.java) ?: child.child("date").getValue(String::class.java) ?: ""
-            val paymentMode = child.child("paymentMode").getValue(String::class.java) ?: "Cash"
-            val referenceNumber = child.child("bankName").getValue(String::class.java) ?: child.child("referenceNumber").getValue(String::class.java) ?: ""
-            val remarks = child.child("remarks").getValue(String::class.java) ?: ""
-            val createdBy = child.child("createdBy").getValue(String::class.java) ?: child.child("receivedBy").getValue(String::class.java) ?: ""
-            val createdByName = child.child("createdByName").getValue(String::class.java) ?: createdBy
+            val createdAt = child.getString("createdAt") ?: child.getString("paymentDate") ?: child.getString("date") ?: ""
+            val paymentMode = child.getString("paymentMode") ?: "Cash"
+            val referenceNumber = child.getString("bankName") ?: child.getString("referenceNumber") ?: ""
+            val remarks = child.getString("remarks") ?: ""
+            val createdBy = child.getString("createdBy") ?: child.getString("receivedBy") ?: ""
+            val createdByName = child.getString("createdByName") ?: createdBy
 
-            val tsVal = child.child("timestamp").value ?: child.child("receivedTime").value
+            val tsVal = child.get("timestamp") ?: child.get("receivedTime")
             val timestamp = when (tsVal) {
                 is Number -> tsVal.toLong()
                 is String -> tsVal.toLongOrNull() ?: 0L
                 else -> 0L
             }
 
-            val key = child.key ?: ""
+            val key = child.id
             val idVal = key.filter { it.isDigit() }.toIntOrNull() ?: 0
 
-            val discountPercent = child.child("discountPercent").getValue(Double::class.java) ?: 0.0
-            val discountAmount = child.child("discountAmount").getValue(Double::class.java) 
-                ?: child.child("discount").getValue(Double::class.java) 
+            val discountPercent = child.getDouble("discountPercent") ?: 0.0
+            val discountAmount = child.getDouble("discountAmount")
+                ?: child.getDouble("discount")
                 ?: 0.0
-            val commissionPercent = child.child("commissionPercent").getValue(Double::class.java) ?: 0.0
-            val commissionAmount = child.child("commissionAmount").getValue(Double::class.java) 
-                ?: child.child("commission").getValue(Double::class.java) 
+            val commissionPercent = child.getDouble("commissionPercent") ?: 0.0
+            val commissionAmount = child.getDouble("commissionAmount")
+                ?: child.getDouble("commission")
                 ?: 0.0
-            
-            var remarks1 = child.child("remarks1").getValue(String::class.java) ?: ""
+
+            var remarks1 = child.getString("remarks1") ?: ""
             if (remarks1.isEmpty()) {
-                val remarkAmtVal = child.child("remarkAmt").value
-                remarks1 = remarkAmtVal?.toString() ?: ""
-            }
-            
-            var remarks2 = child.child("remarks2").getValue(String::class.java) ?: ""
-            if (remarks2.isEmpty()) {
-                remarks2 = child.child("remark").getValue(String::class.java) ?: ""
+                remarks1 = child.get("remarkAmt")?.toString() ?: ""
             }
 
-            val alreadyPaidAmount = child.child("alreadyPaidAmount").getValue(Double::class.java) ?: 0.0
-            val pendingAmount = child.child("pendingAmount").getValue(Double::class.java) 
-                ?: child.child("balanceAmount").getValue(Double::class.java) 
+            var remarks2 = child.getString("remarks2") ?: ""
+            if (remarks2.isEmpty()) {
+                remarks2 = child.getString("remark") ?: ""
+            }
+
+            val alreadyPaidAmount = child.getDouble("alreadyPaidAmount") ?: 0.0
+            val pendingAmount = child.getDouble("pendingAmount")
+                ?: child.getDouble("balanceAmount")
                 ?: 0.0
-            val updatedAt = child.child("updatedAt").getValue(Long::class.java) ?: 0L
-            val updatedBy = child.child("updatedBy").getValue(String::class.java) ?: ""
-            val billAmount = child.child("billAmount").getValue(Double::class.java) ?: 0.0
+            val updatedAt = child.getLong("updatedAt") ?: 0L
+            val updatedBy = child.getString("updatedBy") ?: ""
+            val billAmount = child.getDouble("billAmount") ?: 0.0
 
             val p = Payment(
                 paymentId = paymentId,

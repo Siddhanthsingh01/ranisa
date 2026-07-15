@@ -17,12 +17,27 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
     val activeFirm = repository.activeFirm
     val users = repository.users.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val firms = repository.firms.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    val sellers = repository.sellers.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    val buyers = repository.buyers.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    val brokers = repository.brokers.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val sellers = combine(repository.sellers, activeFirm) { list, firm ->
+        val currentId = firm?.id ?: "F001"
+        list.filter { it.firmName == currentId || it.firmName == firm?.name }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val buyers = combine(repository.buyers, activeFirm) { list, firm ->
+        val currentId = firm?.id ?: "F001"
+        list.filter { it.firmName == currentId || it.firmName == firm?.name }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val brokers = combine(repository.brokers, activeFirm) { list, firm ->
+        val currentId = firm?.id ?: "F001"
+        list.filter { it.firmName == currentId || it.firmName == firm?.name }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val logs = repository.logs.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // State for Search & Filters
+    private val _firestoreUser = MutableStateFlow<com.example.data.FirestoreUser?>(null)
+    val firestoreUser: StateFlow<com.example.data.FirestoreUser?> = _firestoreUser.asStateFlow()
+
     private val _globalSearchQuery = MutableStateFlow("")
     val globalSearchQuery = _globalSearchQuery.asStateFlow()
 
@@ -47,182 +62,204 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
     val rtdbGsts = MutableStateFlow<List<String>>(emptyList())
     val rtdbBrokers = MutableStateFlow<List<String>>(emptyList())
 
+    private var sellersRegistration: com.google.firebase.firestore.ListenerRegistration? = null
+    private var buyersRegistration: com.google.firebase.firestore.ListenerRegistration? = null
+    private var brokersRegistration: com.google.firebase.firestore.ListenerRegistration? = null
+    private var settingsRegistration: com.google.firebase.firestore.ListenerRegistration? = null
+
     init {
         FirebaseService.startSync(application, repository)
-        startListeningToMasterData()
+        fetchAndSetFirestoreUser()
+        viewModelScope.launch {
+            activeFirm.collect { firm ->
+                startListeningToMasterData(firm)
+            }
+        }
     }
 
-    private fun startListeningToMasterData() {
+    private fun startListeningToMasterData(firm: Firm?) {
         try {
-            val dbUrl = "https://ranisa-78679-default-rtdb.asia-southeast1.firebasedatabase.app"
-            val db = com.google.firebase.database.FirebaseDatabase.getInstance(dbUrl)
-            db.getReference("masterData").addValueEventListener(object : com.google.firebase.database.ValueEventListener {
-                override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
-                    val sellersList = mutableListOf<String>()
-                    val fullSellersList = mutableListOf<FirebaseSeller>()
-                    val buyersList = mutableListOf<String>()
-                    val fullBuyersList = mutableListOf<FirebaseBuyer>()
-                    val transportsList = mutableListOf<String>()
-                    val brandsList = mutableListOf<String>()
-                    val mobilesList = mutableListOf<String>()
-                    val gstsList = mutableListOf<String>()
+            sellersRegistration?.remove()
+            buyersRegistration?.remove()
+            brokersRegistration?.remove()
+            settingsRegistration?.remove()
 
-                    for (child in snapshot.child("sellers").children) {
-                        val sellerName = child.child("sellerName").getValue(String::class.java)
-                        if (sellerName != null) {
-                            sellersList.add(sellerName)
-                            fullSellersList.add(
-                                FirebaseSeller(
-                                    sellerId = child.child("sellerId").getValue(String::class.java) ?: child.key ?: "",
-                                    sellerName = sellerName,
-                                    mobile = child.child("mobile").getValue(String::class.java) ?: "",
-                                    place = child.child("place").getValue(String::class.java) ?: "",
-                                    gstNo = child.child("gstNo").getValue(String::class.java) ?: "",
-                                    millName = child.child("millName").getValue(String::class.java) ?: "",
-                                    address = child.child("address").getValue(String::class.java) ?: ""
-                                )
-                            )
-                        } else {
-                            child.key?.let { name ->
+            if (firm == null) return
+
+            val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+            val firmPath = FirebaseService.getSanitizedFirmId(firm.name)
+
+            // 1. Listen to Sellers
+            sellersRegistration = db.collection("firms").document(firmPath).collection("sellers")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) return@addSnapshotListener
+                    if (snapshot != null) {
+                        val sellersList = mutableListOf<String>()
+                        val fullSellersList = mutableListOf<FirebaseSeller>()
+                        for (doc in snapshot.documents) {
+                            val name = doc.getString("sellerName") ?: doc.getString("name") ?: ""
+                            if (name.isNotBlank()) {
                                 sellersList.add(name)
                                 fullSellersList.add(
                                     FirebaseSeller(
-                                        sellerId = name,
-                                        sellerName = name
+                                        sellerId = doc.getString("sellerId") ?: doc.id,
+                                        sellerName = name,
+                                        mobile = doc.getString("mobile") ?: doc.getString("phone") ?: "",
+                                        place = doc.getString("place") ?: "",
+                                        gstNo = doc.getString("gstNo") ?: "",
+                                        millName = doc.getString("millName") ?: "",
+                                        address = doc.getString("address") ?: ""
                                     )
                                 )
                             }
                         }
+                        rtdbSellers.value = sellersList.distinct().sorted()
+                        rtdbFullSellers.value = fullSellersList.distinctBy { it.sellerName.trim().lowercase() }
                     }
-                    for (child in snapshot.child("seller").children) {
-                        child.key?.let { name ->
-                            if (!sellersList.contains(name)) {
-                                sellersList.add(name)
-                                fullSellersList.add(FirebaseSeller(sellerId = name, sellerName = name))
-                            }
-                        }
-                    }
+                }
 
-                    for (child in snapshot.child("buyers").children) {
-                        val buyerName = child.child("buyerName").getValue(String::class.java)
-                        if (buyerName != null) {
-                            buyersList.add(buyerName)
-                            fullBuyersList.add(
-                                FirebaseBuyer(
-                                    buyerId = child.child("buyerId").getValue(String::class.java) ?: child.key ?: "",
-                                    buyerName = buyerName,
-                                    mobile = child.child("mobile").getValue(String::class.java) ?: "",
-                                    place = child.child("place").getValue(String::class.java) ?: "",
-                                    gstNo = child.child("gstNo").getValue(String::class.java) ?: "",
-                                    firmName = child.child("firmName").getValue(String::class.java) ?: "",
-                                    address = child.child("address").getValue(String::class.java) ?: ""
-                                )
-                            )
-                        } else {
-                            child.key?.let { name ->
+            // 2. Listen to Buyers
+            buyersRegistration = db.collection("firms").document(firmPath).collection("buyers")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) return@addSnapshotListener
+                    if (snapshot != null) {
+                        val buyersList = mutableListOf<String>()
+                        val fullBuyersList = mutableListOf<FirebaseBuyer>()
+                        for (doc in snapshot.documents) {
+                            val name = doc.getString("buyerName") ?: doc.getString("name") ?: ""
+                            if (name.isNotBlank()) {
                                 buyersList.add(name)
                                 fullBuyersList.add(
                                     FirebaseBuyer(
-                                        buyerId = name,
-                                        buyerName = name
+                                        buyerId = doc.getString("buyerId") ?: doc.id,
+                                        buyerName = name,
+                                        mobile = doc.getString("mobile") ?: doc.getString("phone") ?: "",
+                                        place = doc.getString("place") ?: "",
+                                        gstNo = doc.getString("gstNo") ?: "",
+                                        firmName = doc.getString("firmName") ?: "",
+                                        address = doc.getString("address") ?: ""
                                     )
                                 )
                             }
                         }
+                        rtdbBuyers.value = buyersList.distinct().sorted()
+                        rtdbFullBuyers.value = fullBuyersList.distinctBy { it.buyerName.trim().lowercase() }
                     }
-                    for (child in snapshot.child("buyer").children) {
-                        child.key?.let { name ->
-                            if (!buyersList.contains(name)) {
-                                buyersList.add(name)
-                                fullBuyersList.add(FirebaseBuyer(buyerId = name, buyerName = name))
-                            }
-                        }
-                    }
-
-                    for (child in snapshot.child("transports").children) {
-                        child.key?.let { transportsList.add(it) }
-                    }
-                    for (child in snapshot.child("transport").children) {
-                        child.key?.let { if (!transportsList.contains(it)) transportsList.add(it) }
-                    }
-
-                    for (child in snapshot.child("brands").children) {
-                        child.key?.let { brandsList.add(it) }
-                    }
-                    for (child in snapshot.child("brand").children) {
-                        child.key?.let { if (!brandsList.contains(it)) brandsList.add(it) }
-                    }
-
-                    for (child in snapshot.child("mobileNumbers").children) {
-                        child.key?.let { mobilesList.add(it) }
-                    }
-                    for (child in snapshot.child("mobile_numbers").children) {
-                        child.key?.let { if (!mobilesList.contains(it)) mobilesList.add(it) }
-                    }
-
-                    for (child in snapshot.child("gstNumbers").children) {
-                        child.key?.let { gstsList.add(it) }
-                    }
-                    for (child in snapshot.child("gst_numbers").children) {
-                        child.key?.let { if (!gstsList.contains(it)) gstsList.add(it) }
-                    }
-
-                    val brokersList = mutableListOf<String>()
-                    val fullBrokersList = mutableListOf<FirebaseBroker>()
-                    for (child in snapshot.child("brokers").children) {
-                        val name = child.child("brokerName").getValue(String::class.java) ?: child.key
-                        if (name != null) {
-                            brokersList.add(name)
-                            val totalBillings = child.child("totalBillings").getValue(Int::class.java) ?: 0
-                            val totalQtlsVal = child.child("totalQtls").getValue(Double::class.java) ?: 0.0
-                            val createdBy = child.child("createdBy").getValue(String::class.java) ?: ""
-                            val updatedBy = child.child("updatedBy").getValue(String::class.java) ?: ""
-                            val createdTimeVal = child.child("createdTime").getValue(Long::class.java) ?: 0L
-                            val updatedTimeVal = child.child("updatedTime").getValue(Long::class.java) ?: 0L
-                            
-                            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
-                            val createdDateTime = if (createdTimeVal > 0) sdf.format(java.util.Date(createdTimeVal)) else ""
-                            val updatedDateTime = if (updatedTimeVal > 0) sdf.format(java.util.Date(updatedTimeVal)) else ""
-
-                            fullBrokersList.add(
-                                FirebaseBroker(
-                                    brokerId = child.child("brokerId").getValue(String::class.java) ?: child.key ?: "",
-                                    brokerName = name,
-                                    mobile = child.child("mobile").getValue(String::class.java) ?: "",
-                                    address = child.child("address").getValue(String::class.java) ?: "",
-                                    totalBillings = totalBillings,
-                                    totalQtls = totalQtlsVal,
-                                    createdDateTime = createdDateTime,
-                                    updatedDateTime = updatedDateTime,
-                                    createdBy = createdBy,
-                                    updatedBy = updatedBy
-                                )
-                            )
-                        }
-                    }
-
-                    rtdbSellers.value = sellersList.distinct().sorted()
-                    rtdbBuyers.value = buyersList.distinct().sorted()
-                    rtdbFullSellers.value = fullSellersList.distinctBy { it.sellerName.trim().lowercase() }
-                    rtdbFullBuyers.value = fullBuyersList.distinctBy { it.buyerName.trim().lowercase() }
-                    rtdbFullBrokers.value = fullBrokersList.distinctBy { it.brokerName.trim().lowercase() }
-                    rtdbTransports.value = transportsList.sorted()
-                    rtdbBrands.value = brandsList.sorted()
-                    rtdbMobiles.value = mobilesList.sorted()
-                    rtdbGsts.value = gstsList.sorted()
-                    rtdbBrokers.value = brokersList.distinct().sorted()
                 }
 
-                override fun onCancelled(error: com.google.firebase.database.DatabaseError) {}
-            })
+            // 3. Listen to Brokers
+            brokersRegistration = db.collection("firms").document(firmPath).collection("brokers")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) return@addSnapshotListener
+                    if (snapshot != null) {
+                        val brokersList = mutableListOf<String>()
+                        val fullBrokersList = mutableListOf<FirebaseBroker>()
+                        for (doc in snapshot.documents) {
+                            val name = doc.getString("brokerName") ?: doc.getString("name") ?: ""
+                            if (name.isNotBlank()) {
+                                brokersList.add(name)
+                                val totalBillings = doc.getLong("totalBillings")?.toInt() ?: 0
+                                val totalQtlsVal = doc.getDouble("totalQtls") ?: 0.0
+                                val createdBy = doc.getString("createdBy") ?: ""
+                                val updatedBy = doc.getString("updatedBy") ?: ""
+                                val createdTimeVal = when (val v = doc.get("createdTime")) {
+                                    is com.google.firebase.Timestamp -> v.toDate().time
+                                    is java.util.Date -> v.time
+                                    is Number -> v.toLong()
+                                    is String -> v.toLongOrNull() ?: 0L
+                                    else -> 0L
+                                }
+                                val updatedTimeVal = when (val v = doc.get("updatedTime")) {
+                                    is com.google.firebase.Timestamp -> v.toDate().time
+                                    is java.util.Date -> v.time
+                                    is Number -> v.toLong()
+                                    is String -> v.toLongOrNull() ?: 0L
+                                    else -> 0L
+                                }
+                                
+                                val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
+                                val createdDateTime = if (createdTimeVal > 0) sdf.format(java.util.Date(createdTimeVal)) else ""
+                                val updatedDateTime = if (updatedTimeVal > 0) sdf.format(java.util.Date(updatedTimeVal)) else ""
+
+                                fullBrokersList.add(
+                                    FirebaseBroker(
+                                        brokerId = doc.getString("brokerId") ?: doc.id,
+                                        brokerName = name,
+                                        mobile = doc.getString("mobile") ?: doc.getString("phone") ?: "",
+                                        address = doc.getString("address") ?: "",
+                                        totalBillings = totalBillings,
+                                        totalQtls = totalQtlsVal,
+                                        createdDateTime = createdDateTime,
+                                        updatedDateTime = updatedDateTime,
+                                        createdBy = createdBy,
+                                        updatedBy = updatedBy
+                                    )
+                                )
+                            }
+                        }
+                        rtdbBrokers.value = brokersList.distinct().sorted()
+                        rtdbFullBrokers.value = fullBrokersList.distinctBy { it.brokerName.trim().lowercase() }
+                    }
+                }
+
+            // 4. Listen to Settings autocomplete
+            settingsRegistration = db.collection("firms").document(firmPath).collection("settings")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) return@addSnapshotListener
+                    if (snapshot != null) {
+                        val transportsList = mutableListOf<String>()
+                        val brandsList = mutableListOf<String>()
+                        val mobilesList = mutableListOf<String>()
+                        val gstsList = mutableListOf<String>()
+                        
+                        for (doc in snapshot.documents) {
+                            val keys = doc.data?.keys ?: emptySet()
+                            when (doc.id) {
+                                "transports", "transport" -> transportsList.addAll(keys.map { it.toString() })
+                                "brands", "brand" -> brandsList.addAll(keys.map { it.toString() })
+                                "mobileNumbers", "mobile_numbers" -> mobilesList.addAll(keys.map { it.toString() })
+                                "gstNumbers", "gst_numbers" -> gstsList.addAll(keys.map { it.toString() })
+                            }
+                        }
+                        rtdbTransports.value = transportsList.distinct().sorted()
+                        rtdbBrands.value = brandsList.distinct().sorted()
+                        rtdbMobiles.value = mobilesList.distinct().sorted()
+                        rtdbGsts.value = gstsList.distinct().sorted()
+                    }
+                }
+
         } catch (e: Exception) {
             android.util.Log.e("RanisaViewModel", "Error starting masterData listener", e)
         }
     }
 
     // Base flows
-    val allBills = repository.contractBills.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    val allPayments = repository.payments.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val allBills = combine(repository.contractBills, activeFirm) { list, firm ->
+        val currentId = com.example.data.FirebaseService.getSanitizedFirmId(firm?.id ?: "F001")
+        val currentName = firm?.name ?: ""
+        
+        val filtered = list.filter { 
+            val san = com.example.data.FirebaseService.getSanitizedFirmId(it.firmName)
+            san == currentId || it.firmName.equals(currentName, ignoreCase = true)
+        }
+        
+        val distinct = filtered.distinctBy { 
+            val san = com.example.data.FirebaseService.getSanitizedFirmId(it.firmName)
+            "${san}_${it.billNumber}".lowercase()
+        }
+        
+        android.util.Log.d("RanisaViewModel", "[UI LOG] UI list size of allBills (raw database count): ${list.size}, filtered: ${filtered.size}, distinct (displayed UI count): ${distinct.size}")
+        distinct
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allPayments = combine(repository.payments, activeFirm) { list, firm ->
+        val currentId = com.example.data.FirebaseService.getSanitizedFirmId(firm?.id ?: "F001")
+        val currentName = firm?.name ?: ""
+        list.filter { 
+            val san = com.example.data.FirebaseService.getSanitizedFirmId(it.firm)
+            san == currentId || it.firm.equals(currentName, ignoreCase = true)
+        }.distinctBy { it.paymentId }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Combined/derived flows for Ledgers and outstanding calculations
     val filteredBills = combine(allBills, _globalSearchQuery) { bills, query ->
@@ -269,14 +306,29 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
         repository.selectUser(user)
     }
 
-    fun selectFirm(firm: Firm) {
+    fun selectFirm(firm: com.example.data.Firm) {
         repository.selectFirm(firm)
+        val prefs = getApplication<android.app.Application>().getSharedPreferences("ranisa_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString("current_firm_id", firm.id.toString())
+            .putString("current_firm_name", firm.name)
+            .putString("CurrentFirmId", firm.id.toString())
+            .apply()
+        // Start or update dynamic Firebase sync for the active firm
+        FirebaseService.startSync(getApplication(), repository, firm)
+    }
+
+    fun insertFirmDirect(firm: com.example.data.Firm) {
+        viewModelScope.launch {
+            repository.insertFirmDirect(firm)
+        }
     }
 
     // Bills CRUD
     fun autoSyncSellerAndBuyer(bill: ContractBill) {
         viewModelScope.launch {
             val user = activeUser.value?.username ?: "Admin"
+            val currentFirmName = activeFirm.value?.name ?: ""
             
             // 1. SELLER AUTO SYNC
             if (bill.sellerName.isNotBlank()) {
@@ -293,7 +345,8 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
                         gstNo = bill.gstNo,
                         millName = bill.sellerName,
                         address = bill.sellerAddress,
-                        user = user
+                        user = user,
+                        firmName = currentFirmName
                     )
                 } else {
                     FirebaseService.updateSellerInFirebase(
@@ -305,7 +358,8 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
                         gstNo = bill.gstNo,
                         millName = existingSeller.millName.ifBlank { bill.sellerName },
                         address = bill.sellerAddress.ifBlank { existingSeller.address },
-                        user = user
+                        user = user,
+                        firmName = currentFirmName
                     )
                 }
             }
@@ -325,7 +379,8 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
                         gstNo = bill.gstNo,
                         firmName = bill.buyerName,
                         address = bill.buyerAddress,
-                        user = user
+                        user = user,
+                        brokerFirmName = currentFirmName
                     )
                 } else {
                     FirebaseService.updateBuyerInFirebase(
@@ -337,7 +392,8 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
                         gstNo = bill.gstNo,
                         firmName = existingBuyer.firmName.ifBlank { bill.buyerName },
                         address = bill.buyerAddress.ifBlank { existingBuyer.address },
-                        user = user
+                        user = user,
+                        brokerFirmName = currentFirmName
                     )
                 }
             }
@@ -416,7 +472,8 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
                 gstNo = gstNo,
                 millName = millName,
                 address = address,
-                user = user
+                user = user,
+                firmName = activeFirm.value?.name ?: ""
             )
             if (result.first) {
                 // Instantly update our Live RTDB cache so the UI dropdown has it immediately!
@@ -467,7 +524,8 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
                 brokerName = brokerName,
                 mobile = mobile,
                 address = address,
-                user = user
+                user = user,
+                firmName = activeFirm.value?.name ?: ""
             )
             if (result.first) {
                 val newBroker = FirebaseBroker(
@@ -517,7 +575,8 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
                 brokerName = brokerName,
                 mobile = mobile,
                 address = address,
-                user = user
+                user = user,
+                firmName = activeFirm.value?.name ?: ""
             )
             if (result.first) {
                 onSuccess()
@@ -545,7 +604,8 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
                 getApplication(),
                 brokerId = brokerId,
                 brokerName = brokerName,
-                user = user
+                user = user,
+                firmName = activeFirm.value?.name ?: ""
             )
             if (result.first) {
                 onSuccess()
@@ -583,7 +643,8 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
                 gstNo = gstNo,
                 millName = millName,
                 address = address,
-                user = user
+                user = user,
+                firmName = activeFirm.value?.name ?: ""
             )
             if (result.first) {
                 onSuccess()
@@ -611,7 +672,8 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
                 getApplication(),
                 sellerId = sellerId,
                 sellerName = sellerName,
-                user = user
+                user = user,
+                firmName = activeFirm.value?.name ?: ""
             )
             if (result.first) {
                 onSuccess()
@@ -647,7 +709,8 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
                 gstNo = gstNo,
                 firmName = firmName,
                 address = address,
-                user = user
+                user = user,
+                brokerFirmName = activeFirm.value?.name ?: ""
             )
             if (result.first) {
                 // Instantly update our Live RTDB cache so the UI dropdown has it immediately!
@@ -706,7 +769,8 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
                 gstNo = gstNo,
                 firmName = firmName,
                 address = address,
-                user = user
+                user = user,
+                brokerFirmName = activeFirm.value?.name ?: ""
             )
             if (result.first) {
                 onSuccess()
@@ -734,7 +798,8 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
                 getApplication(),
                 buyerId = buyerId,
                 buyerName = buyerName,
-                user = user
+                user = user,
+                firmName = activeFirm.value?.name ?: ""
             )
             if (result.first) {
                 onSuccess()
@@ -1144,6 +1209,22 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
     fun loginUserLocally(username: String, role: String) {
         viewModelScope.launch {
             repository.loginUserLocally(username, role)
+            fetchAndSetFirestoreUser()
+        }
+    }
+
+    fun fetchAndSetFirestoreUser() {
+        val currentUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+        if (currentUser != null) {
+            viewModelScope.launch {
+                val email = currentUser.email ?: ""
+                val res = com.example.data.FirebaseService.fetchUserProfile(currentUser.uid, email)
+                if (res.isSuccess) {
+                    _firestoreUser.value = res.getOrNull()
+                }
+            }
+        } else {
+            _firestoreUser.value = null
         }
     }
 
@@ -1151,6 +1232,13 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
      * Clears the active session and logs out the user.
      */
     fun logoutUser() {
+        try {
+            com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+        } catch (e: Exception) {
+            android.util.Log.e("RanisaViewModel", "FirebaseAuth sign out error", e)
+        }
+        _firestoreUser.value = null
+        com.example.data.FirebaseService.activeUserProfile = null
         repository.logoutUser()
     }
 

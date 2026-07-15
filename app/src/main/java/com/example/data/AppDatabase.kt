@@ -13,7 +13,7 @@ data class User(
 
 @Entity(tableName = "firms")
 data class Firm(
-    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    @PrimaryKey val id: String,
     val name: String
 )
 
@@ -23,7 +23,8 @@ data class Seller(
     val name: String,
     val phone: String = "",
     val place: String = "",
-    val address: String = ""
+    val address: String = "",
+    val firmName: String = ""
 )
 
 @Entity(tableName = "buyers")
@@ -32,7 +33,8 @@ data class Buyer(
     val name: String,
     val phone: String = "",
     val place: String = "",
-    val address: String = ""
+    val address: String = "",
+    val firmName: String = ""
 )
 
 data class FirebaseSeller(
@@ -73,7 +75,8 @@ data class Broker(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val name: String,
     val phone: String = "",
-    val address: String = ""
+    val address: String = "",
+    val firmName: String = ""
 )
 
 @Entity(tableName = "contract_bills")
@@ -377,13 +380,22 @@ interface AppDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLog(log: AuditLog)
 
+    @Query("DELETE FROM sellers WHERE firmName = :firmName")
+    suspend fun clearSellersByFirm(firmName: String)
+
+    @Query("DELETE FROM buyers WHERE firmName = :firmName")
+    suspend fun clearBuyersByFirm(firmName: String)
+
+    @Query("DELETE FROM brokers WHERE firmName = :firmName")
+    suspend fun clearBrokersByFirm(firmName: String)
+
     @Query("DELETE FROM audit_logs")
     suspend fun clearAllLogs()
 }
 
 @Database(
     entities = [User::class, Firm::class, Seller::class, Buyer::class, ContractBill::class, Payment::class, AuditLog::class, Broker::class],
-    version = 9,
+    version = 11,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

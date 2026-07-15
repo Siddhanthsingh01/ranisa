@@ -1,18 +1,17 @@
 package com.example.ui
 
-import android.app.Application
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
@@ -22,12 +21,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.animation.core.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -36,17 +33,15 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.res.painterResource
-import com.example.R
 import androidx.lifecycle.viewModelScope
+import com.example.R
 import com.example.data.FirebaseService
-import com.example.data.FirestoreUser
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
-    onLoginSuccess: (String, String) -> Unit, // Callback passing (username, role)
+    onLoginSuccess: (String, String, List<String>) -> Unit, // Callback passing (username, role, assignedFirms)
     viewModel: RanisaViewModel
 ) {
     val context = LocalContext.current
@@ -56,42 +51,24 @@ fun LoginScreen(
     val prefs = remember(context) { context.getSharedPreferences("ranisa_prefs", android.content.Context.MODE_PRIVATE) }
     var rememberMe by remember { mutableStateOf(prefs.getBoolean("remember_me", false)) }
 
-    val handleLoginSuccess = { u: String, r: String ->
-        onLoginSuccess(u, r)
-    }
-
-    // Auto-login at startup
-    LaunchedEffect(Unit) {
-        val rememberMeSaved = prefs.getBoolean("remember_me", false)
-        val savedUsername = prefs.getString("saved_username", null)
-        val savedRole = prefs.getString("saved_role", null)
-        if (rememberMeSaved && !savedUsername.isNullOrEmpty() && !savedRole.isNullOrEmpty()) {
-            viewModel.loginUserLocally(savedUsername, savedRole)
-            handleLoginSuccess(savedUsername, savedRole)
-        }
+    val handleLoginSuccess = { u: String, r: String, firms: List<String> ->
+        onLoginSuccess(u, r, firms)
     }
 
     // Fields
-    var username by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf(prefs.getString("saved_username", "") ?: "") }
     var password by remember { mutableStateOf("") }
     
     // UI states
     var isPasswordVisible by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isVerificationPending by remember { mutableStateOf(false) }
     
-    // Detection of Firebase State
-    val isFirebaseAvailable = remember { FirebaseService.isFirebaseInitialized(context) }
-
-    // Check if Debug Mode
-    val isDebugMode = remember(context) {
-        (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
-    }
-
-    // Focus Requester to move focus programmatically from Username to Password
+    // Focus Requester to move focus programmatically from Email to Password
     val passwordFocusRequester = remember { FocusRequester() }
 
-    // Brand color: Elegant Purple requested (#6C4CF1)
+    // Brand color
     val purplePrimary = Color(0xFF6C4CF1)
 
     // Main scrollable form
@@ -121,8 +98,7 @@ fun LoginScreen(
                 Image(
                     painter = painterResource(id = R.drawable.ic_ranisa_logo),
                     contentDescription = "Ranisa Logo",
-                    modifier = Modifier
-                        .size(100.dp)
+                    modifier = Modifier.size(100.dp)
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -183,249 +159,354 @@ fun LoginScreen(
                     }
                 }
 
-                // Show warning if Firebase is unavailable
-                if (!isFirebaseAvailable && isDebugMode) {
+                if (isVerificationPending) {
+                    // Email Verification Screen (Requirement 6)
                     Card(
                         colors = CardDefaults.cardColors(
-                            containerColor = Color(0xFFFFF3CD),
-                            contentColor = Color(0xFF856404)
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(bottom = 16.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, Color(0xFFFFEEBA))
+                            .padding(vertical = 16.dp),
+                        shape = RoundedCornerShape(16.dp)
                     ) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(12.dp)
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.Email,
+                                contentDescription = "Email Verification",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
                             Text(
-                                text = "Firebase Not Initialized",
+                                text = "Please verify your email before logging in.",
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
-                            Spacer(modifier = Modifier.height(2.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "Missing google-services.json configuration. App is running in Local Offline Mode for sandbox testing.",
-                                fontSize = 12.sp,
-                                lineHeight = 16.sp
+                                text = "We sent a verification link to $email. Please check your inbox and spam folders.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            Spacer(modifier = Modifier.height(24.dp))
+                            
+                            Button(
+                                onClick = {
+                                    isLoading = true
+                                    errorMessage = null
+                                    scope.launch {
+                                        val res = FirebaseService.sendVerificationEmail()
+                                        isLoading = false
+                                        res.fold(
+                                            onSuccess = {
+                                                Toast.makeText(context, "Verification email resent successfully!", Toast.LENGTH_SHORT).show()
+                                            },
+                                            onFailure = { err ->
+                                                errorMessage = err.message ?: "Failed to resend verification email."
+                                            }
+                                        )
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(50.dp)
+                                    .testTag("resend_verification_button"),
+                                shape = RoundedCornerShape(25.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                ),
+                                enabled = !isLoading
+                            ) {
+                                if (isLoading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Text("Send Verification Email Again")
+                                }
+                            }
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            OutlinedButton(
+                                onClick = {
+                                    com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+                                    isVerificationPending = false
+                                    password = ""
+                                    errorMessage = null
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(50.dp)
+                                    .testTag("logout_verification_button"),
+                                shape = RoundedCornerShape(25.dp),
+                                enabled = !isLoading
+                            ) {
+                                Text("Logout")
+                            }
                         }
                     }
-                }
-
-                // Username TextField
-                OutlinedTextField(
-                    value = username,
-                    onValueChange = {
-                        username = it
-                        errorMessage = null // reset error on type
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("username_input"),
-                    label = { Text("Enter Username") },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = "Username Icon",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                        focusedLabelColor = MaterialTheme.colorScheme.primary,
-                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        cursorColor = MaterialTheme.colorScheme.primary
-                    ),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Text,
-                        imeAction = ImeAction.Next
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onNext = { passwordFocusRequester.requestFocus() }
-                    ),
-                    enabled = !isLoading
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Password TextField
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = {
-                        password = it
-                        errorMessage = null // reset error on type
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(passwordFocusRequester)
-                        .testTag("password_input"),
-                    label = { Text("Enter Password") },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = "Password Icon",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    },
-                    trailingIcon = {
-                        IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
+                } else {
+                    // Email TextField (Requirement 3)
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = {
+                            email = it
+                            errorMessage = null
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("username_input"),
+                        label = { Text("Email Address") },
+                        leadingIcon = {
                             Icon(
-                                imageVector = if (isPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                contentDescription = if (isPasswordVisible) "Hide Password" else "Show Password",
-                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                                imageVector = Icons.Default.Email,
+                                contentDescription = "Email Icon",
+                                tint = MaterialTheme.colorScheme.primary
                             )
-                        }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                        focusedLabelColor = MaterialTheme.colorScheme.primary,
-                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        cursorColor = MaterialTheme.colorScheme.primary
-                    ),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Password,
-                        imeAction = ImeAction.Done
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onDone = {
-                            focusManager.clearFocus()
-                            Log.d("LoginScreen", "Login button pressed")
-                            if (username.isBlank() || password.isBlank()) {
-                                errorMessage = "Please enter both username and password."
-                            } else {
-                                performLogin(
-                                    context = context,
-                                    usernameInput = username,
-                                    passwordInput = password,
-                                    isFirebaseAvailable = isFirebaseAvailable,
-                                    viewModel = viewModel,
-                                    setLoading = { isLoading = it },
-                                    setError = { errorMessage = it },
-                                    onSuccess = { u, r ->
-                                        val editor = prefs.edit()
-                                        if (rememberMe) {
-                                            editor.putBoolean("remember_me", true)
-                                            editor.putString("saved_username", u)
-                                            editor.putString("saved_role", r)
-                                        } else {
-                                            editor.putBoolean("remember_me", false)
-                                            editor.remove("saved_username")
-                                            editor.remove("saved_role")
-                                        }
-                                        editor.apply()
-                                        handleLoginSuccess(u, r)
-                                    }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                        textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                            focusedLabelColor = MaterialTheme.colorScheme.primary,
+                            unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            cursorColor = MaterialTheme.colorScheme.primary
+                        ),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Email,
+                            imeAction = ImeAction.Next
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = { passwordFocusRequester.requestFocus() }
+                        ),
+                        enabled = !isLoading
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Password TextField (Requirement 3)
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = {
+                            password = it
+                            errorMessage = null
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(passwordFocusRequester)
+                            .testTag("password_input"),
+                        label = { Text("Enter Password") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = "Password Icon",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        },
+                        trailingIcon = {
+                            IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
+                                Icon(
+                                    imageVector = if (isPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                    contentDescription = if (isPasswordVisible) "Hide Password" else "Show Password",
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
                                 )
                             }
-                        }
-                    ),
-                    enabled = !isLoading
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Remember Me Checkbox
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(
-                        checked = rememberMe,
-                        onCheckedChange = { rememberMe = it },
-                        colors = CheckboxDefaults.colors(
-                            checkedColor = MaterialTheme.colorScheme.primary,
-                            checkmarkColor = MaterialTheme.colorScheme.onPrimary
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                        visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                            focusedLabelColor = MaterialTheme.colorScheme.primary,
+                            unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            cursorColor = MaterialTheme.colorScheme.primary
                         ),
-                        modifier = Modifier.testTag("remember_me_checkbox")
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Remember Me",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.clickable { rememberMe = !rememberMe }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // LOGIN Button
-                Button(
-                    onClick = {
-                        focusManager.clearFocus()
-                        Log.d("LoginScreen", "Login button pressed")
-                        if (username.isBlank() || password.isBlank()) {
-                            errorMessage = "Please enter both username and password."
-                            return@Button
-                        }
-                        performLogin(
-                            context = context,
-                            usernameInput = username,
-                            passwordInput = password,
-                            isFirebaseAvailable = isFirebaseAvailable,
-                            viewModel = viewModel,
-                            setLoading = { isLoading = it },
-                            setError = { errorMessage = it },
-                            onSuccess = { u, r ->
-                                val editor = prefs.edit()
-                                if (rememberMe) {
-                                    editor.putBoolean("remember_me", true)
-                                    editor.putString("saved_username", u)
-                                    editor.putString("saved_role", r)
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = {
+                                focusManager.clearFocus()
+                                if (email.isBlank() || password.isBlank()) {
+                                    errorMessage = "Please enter both Email and Password."
                                 } else {
-                                    editor.putBoolean("remember_me", false)
-                                    editor.remove("saved_username")
-                                    editor.remove("saved_role")
+                                    performLogin(
+                                        context = context,
+                                        emailInput = email,
+                                        passwordInput = password,
+                                        viewModel = viewModel,
+                                        setLoading = { isLoading = it },
+                                        setError = { errorMessage = it },
+                                        setVerificationPending = { isVerificationPending = it },
+                                        onSuccess = { u, r, firms ->
+                                            val editor = prefs.edit()
+                                            if (rememberMe) {
+                                                editor.putBoolean("remember_me", true)
+                                                editor.putString("saved_username", u)
+                                                editor.putString("saved_role", r)
+                                                editor.putString("CurrentUser", u)
+                                            } else {
+                                                editor.putBoolean("remember_me", false)
+                                                editor.remove("saved_username")
+                                                editor.remove("saved_role")
+                                                editor.remove("CurrentUser")
+                                            }
+                                            editor.apply()
+                                            handleLoginSuccess(u, r, firms)
+                                        }
+                                    )
                                 }
-                                editor.apply()
-                                handleLoginSuccess(u, r)
                             }
-                        )
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp)
-                        .testTag("login_button"),
-                    shape = RoundedCornerShape(28.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    ),
-                    enabled = !isLoading
-                ) {
-                    if (isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
+                        ),
+                        enabled = !isLoading
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Remember Me and Forgot Password Buttons
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { rememberMe = !rememberMe }
+                        ) {
+                            Checkbox(
+                                checked = rememberMe,
+                                onCheckedChange = { rememberMe = it },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = MaterialTheme.colorScheme.primary,
+                                    checkmarkColor = MaterialTheme.colorScheme.onPrimary
+                                ),
+                                modifier = Modifier.testTag("remember_me_checkbox")
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Remember Me",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        // Forgot Password (Requirement 7)
                         Text(
-                            text = "LOGIN",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
+                            text = "Forgot Password?",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clickable {
+                                    if (email.isBlank()) {
+                                        errorMessage = "Please enter your Email Address to reset password."
+                                    } else {
+                                        isLoading = true
+                                        errorMessage = null
+                                        scope.launch {
+                                            val res = FirebaseService.sendPasswordResetEmail(email)
+                                            isLoading = false
+                                            res.fold(
+                                                onSuccess = {
+                                                    Toast.makeText(context, "Password reset email sent to $email successfully!", Toast.LENGTH_LONG).show()
+                                                },
+                                                onFailure = { err ->
+                                                    errorMessage = err.message ?: "Failed to send password reset email."
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                                .testTag("forgot_password_button")
                         )
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // LOGIN Button
+                    Button(
+                        onClick = {
+                            focusManager.clearFocus()
+                            if (email.isBlank() || password.isBlank()) {
+                                errorMessage = "Please enter both Email and Password."
+                                return@Button
+                            }
+                            performLogin(
+                                context = context,
+                                emailInput = email,
+                                passwordInput = password,
+                                viewModel = viewModel,
+                                setLoading = { isLoading = it },
+                                setError = { errorMessage = it },
+                                setVerificationPending = { isVerificationPending = it },
+                                onSuccess = { u, r, firms ->
+                                    val editor = prefs.edit()
+                                    if (rememberMe) {
+                                        editor.putBoolean("remember_me", true)
+                                        editor.putString("saved_username", u)
+                                        editor.putString("saved_role", r)
+                                        editor.putString("CurrentUser", u)
+                                    } else {
+                                        editor.putBoolean("remember_me", false)
+                                        editor.remove("saved_username")
+                                        editor.remove("saved_role")
+                                        editor.remove("CurrentUser")
+                                    }
+                                    editor.apply()
+                                    handleLoginSuccess(u, r, firms)
+                                }
+                            )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .testTag("login_button"),
+                        shape = RoundedCornerShape(28.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ),
+                        enabled = !isLoading
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text(
+                                text = "LOGIN",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            )
+                        }
                     }
                 }
             }
@@ -443,72 +524,57 @@ fun LoginScreen(
 }
 
 /**
- * Handle Auth sequence
+ * Handle Auth sequence using Firebase Auth
  */
 private fun performLogin(
     context: android.content.Context,
-    usernameInput: String,
+    emailInput: String,
     passwordInput: String,
-    isFirebaseAvailable: Boolean,
     viewModel: RanisaViewModel,
     setLoading: (Boolean) -> Unit,
     setError: (String?) -> Unit,
-    onSuccess: (String, String) -> Unit
+    setVerificationPending: (Boolean) -> Unit,
+    onSuccess: (String, String, List<String>) -> Unit
 ) {
-    val cleanUsername = usernameInput.trim()
+    val cleanEmail = emailInput.trim()
     val cleanPassword = passwordInput.trim()
+    val prefs = context.getSharedPreferences("ranisa_prefs", android.content.Context.MODE_PRIVATE)
 
     setLoading(true)
     setError(null)
 
-    // Launch coroutine in ViewModelScope to survive configuration changes
     viewModel.viewModelScope.launch {
         try {
-            if (isFirebaseAvailable) {
-                Log.d("LoginScreen", "Firebase request started")
-                val result = FirebaseService.authenticateUser(context, cleanUsername, cleanPassword)
-                result.fold(
-                    onSuccess = { firestoreUser ->
-                        Log.d("LoginScreen", "Users loaded")
-                        Log.d("LoginScreen", "User matched")
-                        Log.d("LoginScreen", "Login success")
-                        
-                        // Log Audit to RTDB
-                        FirebaseService.saveLoginAuditLog(context, firestoreUser.username)
-                        
-                        // Sync / Log Locally in Room as well
-                        viewModel.loginUserLocally(firestoreUser.username, firestoreUser.role)
-                        
-                        Toast.makeText(context, "Welcome back, ${firestoreUser.fullName}!", Toast.LENGTH_SHORT).show()
-                        onSuccess(firestoreUser.username, firestoreUser.role)
-                    },
-                    onFailure = { error ->
-                        Log.d("LoginScreen", "Login failed")
-                        Log.d("LoginScreen", "Exception message: ${error.message}")
+            Log.d("LoginScreen", "Firebase Auth request started")
+            val result = FirebaseService.authenticateUser(context, cleanEmail, cleanPassword)
+            result.fold(
+                onSuccess = { firestoreUser ->
+                    Log.d("LoginScreen", "Login success")
+                    
+                    val editor = prefs.edit()
+                    editor.putString("saved_firm_access", firestoreUser.firmAccess)
+                    editor.putString("saved_username", firestoreUser.email)
+                    editor.putString("saved_role", "Admin")
+                    editor.putString("CurrentUser", firestoreUser.email)
+                    editor.apply()
+
+                    FirebaseService.saveLoginAuditLog(context, firestoreUser.email)
+                    viewModel.loginUserLocally(firestoreUser.email, "Admin")
+                    
+                    Toast.makeText(context, "Welcome back, ${firestoreUser.fullName}!", Toast.LENGTH_SHORT).show()
+                    onSuccess(firestoreUser.email, "Admin", firestoreUser.assignedFirms)
+                },
+                onFailure = { error ->
+                    Log.d("LoginScreen", "Login failed: ${error.message}")
+                    if (error.message == "Please verify your email before logging in.") {
+                        setVerificationPending(true)
+                    } else {
                         setError(error.message ?: "Authentication failed.")
                     }
-                )
-            } else {
-                // Fallback Mode (validating against default predefined Room users)
-                val matchingLocalUser = when {
-                    cleanUsername.contains("sidhant", ignoreCase = true) || cleanUsername.contains("admin", ignoreCase = true) -> Pair("Sidhant (Admin)", "Admin")
-                    cleanUsername.contains("lalit", ignoreCase = true) || cleanUsername.contains("broker", ignoreCase = true) -> Pair("Lalit (Broker)", "Broker")
-                    cleanUsername.contains("krishna", ignoreCase = true) || cleanUsername.contains("accountant", ignoreCase = true) -> Pair("Krishna (Accountant)", "Accountant")
-                    cleanUsername.contains("guest", ignoreCase = true) || cleanUsername.contains("viewer", ignoreCase = true) -> Pair("Guest (Viewer)", "Viewer")
-                    else -> null
                 }
-
-                if (matchingLocalUser != null) {
-                    viewModel.loginUserLocally(matchingLocalUser.first, matchingLocalUser.second)
-                    Toast.makeText(context, "Logged in locally as ${matchingLocalUser.first}", Toast.LENGTH_SHORT).show()
-                    onSuccess(matchingLocalUser.first, matchingLocalUser.second)
-                } else {
-                    setError("Invalid Username or Password. Use 'sidhant', 'lalit', 'krishna', or 'guest' for local testing.")
-                }
-            }
+            )
         } catch (e: Exception) {
-            Log.d("LoginScreen", "Login failed")
-            Log.d("LoginScreen", "Exception message: ${e.message}")
+            Log.d("LoginScreen", "Login exception: ${e.message}")
             setError(e.message ?: "An unexpected error occurred during login.")
         } finally {
             setLoading(false)
