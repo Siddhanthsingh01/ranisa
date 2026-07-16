@@ -395,7 +395,7 @@ interface AppDao {
 
 @Database(
     entities = [User::class, Firm::class, Seller::class, Buyer::class, ContractBill::class, Payment::class, AuditLog::class, Broker::class],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

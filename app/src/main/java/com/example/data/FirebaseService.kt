@@ -22,84 +22,6 @@ import java.util.*
 object FirebaseService {
     private const val TAG = "FirebaseService"
 
-    @Volatile
-    var activeUserProfile: FirestoreUser? = null
-
-    fun getCategory(action: String, screen: String): String {
-        val act = action.uppercase()
-        val scr = screen.uppercase()
-        return when {
-            act.contains("BILL") || scr.contains("BILL") -> "Bills"
-            act.contains("PAYMENT") || act.contains("LEDGER") || scr.contains("PAYMENT") || scr.contains("LEDGER") -> "Payments"
-            act.contains("PDF") || act.contains("PRINT") || scr.contains("PDF") || scr.contains("PRINT") -> "PDF/Print"
-            act.contains("LOGIN") || act.contains("LOGOUT") || act.contains("AUTH") || act.contains("USER") || scr.contains("AUTH") || scr.contains("USER") -> "Auth"
-            else -> "Others"
-        }
-    }
-
-    fun buildNewAuditLogMap(
-        action: String,
-        screen: String,
-        firmIdInput: String = "",
-        firmNameInput: String = "",
-        userEmailInput: String = "",
-        userRoleInput: String = "",
-        billNo: String = "",
-        partyName: String = "",
-        oldValueInput: String = "",
-        newValueInput: String = "",
-        detailsInput: String = ""
-    ): Map<String, Any?> {
-        val fUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
-        val email = userEmailInput.ifBlank { activeUserProfile?.email ?: fUser?.email ?: "" }
-        val fullName = activeUserProfile?.fullName ?: email.substringBefore("@")
-        val userId = fUser?.uid ?: ""
-        val role = userRoleInput.ifBlank { "Viewer" }
-
-        val firmId = getSanitizedFirmId(firmIdInput.ifBlank { firmNameInput })
-        val firmName = when (firmId) {
-            "F001" -> "Lalit Rice Broker"
-            "F002" -> "Hare Krishna Rice Broker"
-            else -> firmNameInput.ifBlank { firmIdInput }
-        }
-
-        val category = getCategory(action, screen)
-
-        val deviceMap = mapOf(
-            "model" to android.os.Build.MODEL,
-            "brand" to android.os.Build.BRAND,
-            "sdk" to android.os.Build.VERSION.SDK_INT,
-            "platform" to "Android"
-        )
-
-        val detailsMap = mapOf(
-            "message" to detailsInput,
-            "sessionId" to "Session_" + java.util.UUID.randomUUID().toString().take(8)
-        )
-
-        val oldVal = if (oldValueInput.isNotBlank()) mapOf("value" to oldValueInput) else emptyMap<String, Any>()
-        val newVal = if (newValueInput.isNotBlank()) mapOf("value" to newValueInput) else emptyMap<String, Any>()
-
-        return mapOf(
-            "action" to action,
-            "category" to category,
-            "userId" to userId,
-            "fullName" to fullName,
-            "email" to email,
-            "role" to role,
-            "firmId" to firmId,
-            "firmName" to firmName,
-            "screen" to screen,
-            "billNo" to billNo,
-            "partyName" to partyName,
-            "details" to detailsMap,
-            "oldValue" to oldVal,
-            "newValue" to newVal,
-            "device" to deviceMap,
-            "createdAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
-        )
-    }
-
     private var billsListener: ListenerRegistration? = null
     private var sellersListener: ListenerRegistration? = null
     private var buyersListener: ListenerRegistration? = null
@@ -309,7 +231,6 @@ object FirebaseService {
                 createdAt = doc.getDate("createdAt"),
                 lastLogin = doc.getDate("lastLogin") ?: java.util.Date()
             )
-            activeUserProfile = firestoreUser
             Result.success(firestoreUser)
         } catch (e: Exception) {
             Result.failure(e)
@@ -324,11 +245,16 @@ object FirebaseService {
 
         try {
             val db = FirebaseFirestore.getInstance()
-            val auditData = buildNewAuditLogMap(
-                action = "Login",
-                screen = "Login Screen",
-                userEmailInput = username,
-                detailsInput = "User login successful"
+            val sdfDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val sdfTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+            val now = Date()
+
+            val auditData = hashMapOf(
+                "userName" to username,
+                "action" to "Login",
+                "date" to sdfDate.format(now),
+                "time" to sdfTime.format(now),
+                "device" to Build.MODEL
             )
 
             db.collection("audit_logs").add(auditData).await()
@@ -360,21 +286,47 @@ object FirebaseService {
     ) {
         try {
             val db = FirebaseFirestore.getInstance()
-            val logsColl = db.collection("audit_logs")
+            val firmPath = if (firm.isNotBlank()) getSanitizedFirmId(firm) else "F001"
+            val logsColl = db.collection("firms").document(firmPath).collection("logs")
 
-            val logData = buildNewAuditLogMap(
-                action = action,
-                screen = "System Log",
-                firmNameInput = firm,
-                userEmailInput = user,
-                userRoleInput = role,
-                billNo = billNo,
-                detailsInput = details,
-                oldValueInput = details
+            // Find the next LOG_xxxxx sequence number
+            val snapshot = logsColl.get().await()
+            var maxSeq = 0
+            for (doc in snapshot.documents) {
+                val key = doc.id
+                if (key.startsWith("LOG_")) {
+                    val numStr = key.substring(4)
+                    val num = numStr.toIntOrNull()
+                    if (num != null && num > maxSeq) {
+                        maxSeq = num
+                    }
+                }
+            }
+            val nextSeq = maxSeq + 1
+            val nextKey = String.format("LOG_%06d", nextSeq)
+
+            val logData = hashMapOf(
+                "action" to action,
+                "billNo" to (billNo.toIntOrNull() ?: billNo),
+                "firm" to firm,
+                "user" to user,
+                "role" to role,
+                "time" to FieldValue.serverTimestamp(),
+                "device" to "Android",
+                "details" to details,
+                // Add AuditLog compatibility fields
+                "userName" to user,
+                "userRole" to role,
+                "date" to SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()),
+                "timeStr" to SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()),
+                "screen" to "System Log",
+                "firmName" to firm,
+                "oldValue" to details,
+                "newValue" to ""
             )
 
-            logsColl.add(logData).await()
-            Log.d(TAG, "Log written to Firestore global audit_logs successfully")
+            logsColl.document(nextKey).set(logData).await()
+            Log.d(TAG, "Log written to Firestore successfully: $nextKey")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to write log to Firestore", e)
         }
@@ -383,22 +335,26 @@ object FirebaseService {
     suspend fun logAuditLogToFirebase(log: AuditLog) {
         try {
             val db = FirebaseFirestore.getInstance()
-            val logsColl = db.collection("audit_logs")
+            val firmPath = if (log.firmName.isNotBlank()) getSanitizedFirmId(log.firmName) else "F001"
+            val logsColl = db.collection("firms").document(firmPath).collection("logs")
 
-            val logData = buildNewAuditLogMap(
-                action = log.action,
-                screen = log.screen,
-                firmNameInput = log.firmName,
-                userEmailInput = log.userName,
-                userRoleInput = log.userRole,
-                billNo = log.billNo,
-                partyName = log.partyName,
-                oldValueInput = log.oldValue,
-                newValueInput = log.newValue,
-                detailsInput = if (log.oldValue.isNotBlank() || log.newValue.isNotBlank()) "" else "${log.action} ${log.screen}"
+            val logData = hashMapOf(
+                "userName" to log.userName,
+                "userRole" to log.userRole,
+                "date" to log.date,
+                "time" to log.time,
+                "screen" to log.screen,
+                "action" to log.action,
+                "firmName" to log.firmName,
+                "oldValue" to log.oldValue,
+                "newValue" to log.newValue,
+                "device" to log.device,
+                "ipSessionId" to log.ipSessionId,
+                "billNo" to log.billNo,
+                "partyName" to log.partyName
             )
             logsColl.add(logData).await()
-            Log.d(TAG, "Audit log written to Firestore global audit_logs successfully")
+            Log.d(TAG, "Audit log written to Firestore successfully under firm: $firmPath")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to write audit log to Firestore", e)
         }
@@ -876,17 +832,17 @@ object FirebaseService {
             batch.set(paymentRef, paymentData)
             batch.set(buyerSettingRef, mapOf(newPayment.buyerName to true), SetOptions.merge())
 
-            // Create Audit log inside global audit_logs collection
-            val auditLogRef = db.collection("audit_logs").document()
-            val auditData = buildNewAuditLogMap(
-                action = "EDIT_PAYMENT_TRANSACTION",
-                screen = "Party Ledger Dialog",
-                firmNameInput = bill.firmName,
-                userEmailInput = user,
-                userRoleInput = role,
-                oldValueInput = "Received: ${bill.totalReceived - newPayment.paymentAmount}, Pending: ${bill.remainingBalance + newPayment.paymentAmount}",
-                newValueInput = "Received: ${bill.totalReceived}, Pending: ${bill.remainingBalance}",
-                detailsInput = "Edited Payment Transaction details"
+            // Create Audit log inside current firm's logs subcollection
+            val auditLogRef = db.collection("firms").document(firmPath).collection("logs").document()
+            val auditData = hashMapOf(
+                "userName" to user,
+                "date" to SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()),
+                "time" to SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()),
+                "screen" to "Party Ledger Dialog",
+                "action" to "EDIT_PAYMENT_TRANSACTION",
+                "oldValue" to "Received: ${bill.totalReceived - newPayment.paymentAmount}, Pending: ${bill.remainingBalance + newPayment.paymentAmount}",
+                "newValue" to "Received: ${bill.totalReceived}, Pending: ${bill.remainingBalance}",
+                "device" to "Android SDK " + Build.VERSION.SDK_INT
             )
             batch.set(auditLogRef, auditData)
 
@@ -1382,116 +1338,6 @@ object FirebaseService {
                 }
             }
 
-            // 6. Listen to Audit Logs (Global System Audit Log)
-            auditLogsListener = db.collection("audit_logs")
-                .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        Log.e(TAG, "Error syncing global logs", error)
-                        return@addSnapshotListener
-                    }
-                    if (snapshot != null) {
-                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                            try {
-                                val list = mutableListOf<AuditLog>()
-                                for (doc in snapshot.documents) {
-                                    val emailVal = doc.getString("email") ?: doc.getString("userName") ?: doc.getString("user") ?: ""
-                                    val fullNameVal = doc.getString("fullName") ?: ""
-                                    val resolvedUserName = emailVal.ifBlank { fullNameVal }
-
-                                    val userRole = doc.getString("role") ?: doc.getString("userRole") ?: ""
-
-                                    // Format Timestamp to date and time strings for backward compatibility
-                                    val createdAtTimestamp = doc.getTimestamp("createdAt")
-                                    val dateStr: String
-                                    val timeStr: String
-                                    if (createdAtTimestamp != null) {
-                                        val dateObj = createdAtTimestamp.toDate()
-                                        dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(dateObj)
-                                        timeStr = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(dateObj)
-                                    } else {
-                                        val oldDate = doc.getString("date") ?: ""
-                                        val oldTime = doc.getString("time") ?: doc.getString("timeStr") ?: ""
-                                        dateStr = oldDate.ifBlank { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
-                                        timeStr = oldTime.ifBlank { SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()) }
-                                    }
-
-                                    val screen = doc.getString("screen") ?: "System Log"
-                                    val action = doc.getString("action") ?: ""
-                                    val fName = doc.getString("firmName") ?: doc.getString("firm") ?: ""
-
-                                    // Extract newValue, oldValue, device, details as map/objects and convert them to strings for local Room AuditLog fields
-                                    val detailsMap = doc.get("details") as? Map<*, *>
-                                    val oldValDoc = doc.get("oldValue")
-                                    val newValDoc = doc.get("newValue")
-                                    val deviceDoc = doc.get("device")
-
-                                    val detailsStr = when (detailsMap) {
-                                        is Map<*, *> -> detailsMap["message"]?.toString() ?: ""
-                                        else -> doc.getString("details") ?: ""
-                                    }
-
-                                    val oldValueStr = when (oldValDoc) {
-                                        is Map<*, *> -> oldValDoc["value"]?.toString() ?: ""
-                                        is String -> oldValDoc
-                                        else -> ""
-                                    }
-
-                                    val newValueStr = when (newValDoc) {
-                                        is Map<*, *> -> newValDoc["value"]?.toString() ?: ""
-                                        is String -> newValDoc
-                                        else -> ""
-                                    }
-
-                                    val deviceStr = when (deviceDoc) {
-                                        is Map<*, *> -> {
-                                            val model = deviceDoc["model"]?.toString() ?: ""
-                                            val brand = deviceDoc["brand"]?.toString() ?: ""
-                                            val platform = deviceDoc["platform"]?.toString() ?: ""
-                                            if (model.isNotEmpty() || brand.isNotEmpty()) "$brand $model ($platform)" else platform
-                                        }
-                                        is String -> deviceDoc
-                                        else -> ""
-                                    }
-
-                                    val ipSessionId = when (detailsMap) {
-                                        is Map<*, *> -> detailsMap["sessionId"]?.toString() ?: ""
-                                        else -> doc.getString("ipSessionId") ?: ""
-                                    }
-
-                                    val billNoVal = doc.get("billNo")
-                                    val billNo = when (billNoVal) {
-                                        is Number -> billNoVal.toLong().toString()
-                                        is String -> billNoVal
-                                        else -> ""
-                                    }
-                                    val partyName = doc.getString("partyName") ?: ""
-
-                                    val logItem = AuditLog(
-                                        userName = resolvedUserName,
-                                        userRole = userRole,
-                                        date = dateStr,
-                                        time = timeStr,
-                                        screen = screen,
-                                        action = action,
-                                        firmName = fName,
-                                        oldValue = oldValueStr.ifBlank { detailsStr },
-                                        newValue = newValueStr,
-                                        device = deviceStr,
-                                        ipSessionId = ipSessionId,
-                                        billNo = billNo,
-                                        partyName = partyName
-                                    )
-                                    list.add(logItem)
-                                }
-                                appRepository.syncLogsFromFirebase(list)
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Error processing logs", e)
-                            }
-                        }
-                    }
-                }
-
             if (firm == null) {
                 Log.d(TAG, "No active firm selected. Waiting for firm selection.")
                 return
@@ -1654,6 +1500,63 @@ object FirebaseService {
                                 appRepository.syncPaymentsFromFirebase(list)
                             } catch (e: Exception) {
                                 Log.e(TAG, "Error processing payments for ${firm.name}", e)
+                            }
+                        }
+                    }
+                }
+
+            // 6. Listen to Audit Logs
+            auditLogsListener = db.collection("firms").document(firmPath).collection("logs")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.e(TAG, "Error syncing logs for ${firm.name}", error)
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            try {
+                                val list = mutableListOf<AuditLog>()
+                                for (doc in snapshot.documents) {
+                                    val userName = doc.getString("userName") ?: doc.getString("user") ?: ""
+                                    val userRole = doc.getString("userRole") ?: doc.getString("role") ?: ""
+                                    val date = doc.getString("date") ?: ""
+                                    val time = doc.getString("time") ?: doc.getString("timeStr") ?: ""
+                                    val screen = doc.getString("screen") ?: "System Log"
+                                    val action = doc.getString("action") ?: ""
+                                    val fName = doc.getString("firmName") ?: doc.getString("firm") ?: ""
+                                    val oldValue = doc.getString("oldValue") ?: doc.getString("details") ?: ""
+                                    val newValue = doc.getString("newValue") ?: ""
+                                    val device = doc.getString("device") ?: ""
+                                    val ipSessionId = doc.getString("ipSessionId") ?: ""
+                                    
+                                    val billNoVal = doc.get("billNo")
+                                    val billNo = when (billNoVal) {
+                                        is Number -> billNoVal.toLong().toString()
+                                        is String -> billNoVal
+                                        else -> ""
+                                    }
+                                    val partyName = doc.getString("partyName") ?: ""
+
+                                    val logItem = AuditLog(
+                                        userName = userName,
+                                        userRole = userRole,
+                                        date = date.ifBlank { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) },
+                                        time = time.ifBlank { SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()) },
+                                        screen = screen,
+                                        action = action,
+                                        firmName = fName,
+                                        oldValue = oldValue,
+                                        newValue = newValue,
+                                        device = device,
+                                        ipSessionId = ipSessionId,
+                                        billNo = billNo,
+                                        partyName = partyName
+                                    )
+                                    list.add(logItem)
+                                }
+                                appRepository.syncLogsFromFirebase(list)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error processing logs", e)
                             }
                         }
                     }

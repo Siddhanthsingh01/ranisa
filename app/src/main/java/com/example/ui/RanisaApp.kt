@@ -7699,26 +7699,19 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
     var selectedCategoryFilter by remember { mutableStateOf("All") }
     var selectedRoleFilter by remember { mutableStateOf("All") }
     var selectedFirmFilter by remember { mutableStateOf("All") }
-    var selectedDateFilter by remember { mutableStateOf("All") }
-    var selectedActionFilter by remember { mutableStateOf("All") }
     var expandedLogId by remember { mutableStateOf<Int?>(null) }
-    var pageLimit by remember { mutableStateOf(50) }
 
     val categories = listOf("All", "Bills", "Payments", "PDF/Print", "Auth", "Others")
     val roles = listOf("All", "Admin", "Broker", "Accountant", "Viewer")
     val firms = listOf("All", "Lalit Rice Broker", "Hare Krishna Rice Broker")
-    val dateFilters = listOf("All", "Today", "Yesterday", "Last 7 Days")
-    val actionFilters = listOf("All", "CREATE", "UPDATE", "DELETE", "Login", "Logout", "Print", "PDF Preview", "PDF Download", "PDF Share")
 
     val filteredLogs = logs.filter { log ->
         val matchesSearch = searchQuery.isBlank() ||
                 log.action.contains(searchQuery, ignoreCase = true) ||
                 log.userName.contains(searchQuery, ignoreCase = true) ||
-                log.userRole.contains(searchQuery, ignoreCase = true) ||
                 log.screen.contains(searchQuery, ignoreCase = true) ||
                 log.billNo.contains(searchQuery, ignoreCase = true) ||
                 log.partyName.contains(searchQuery, ignoreCase = true) ||
-                log.firmName.contains(searchQuery, ignoreCase = true) ||
                 log.oldValue.contains(searchQuery, ignoreCase = true) ||
                 log.newValue.contains(searchQuery, ignoreCase = true)
 
@@ -7739,42 +7732,9 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
         }
 
         val matchesRole = selectedRoleFilter == "All" || log.userRole.equals(selectedRoleFilter, ignoreCase = true)
-        val matchesFirm = when (selectedFirmFilter) {
-            "All" -> true
-            "Lalit Rice Broker" -> log.firmName.equals("F001", ignoreCase = true) || log.firmName.contains("Lalit", ignoreCase = true)
-            "Hare Krishna Rice Broker" -> log.firmName.equals("F002", ignoreCase = true) || log.firmName.contains("Hare", ignoreCase = true)
-            else -> log.firmName.equals(selectedFirmFilter, ignoreCase = true)
-        }
-        val matchesDate = when (selectedDateFilter) {
-            "All" -> true
-            "Today" -> {
-                val today = SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
-                log.date == today
-            }
-            "Yesterday" -> {
-                val cal = java.util.Calendar.getInstance()
-                cal.add(java.util.Calendar.DATE, -1)
-                val yesterday = SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(cal.time)
-                log.date == yesterday
-            }
-            "Last 7 Days" -> {
-                try {
-                    val sdf = SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-                    val logDate = sdf.parse(log.date)
-                    if (logDate != null) {
-                        val limitCal = java.util.Calendar.getInstance()
-                        limitCal.add(java.util.Calendar.DATE, -7)
-                        logDate.after(limitCal.time)
-                    } else false
-                } catch (e: Exception) {
-                    false
-                }
-            }
-            else -> true
-        }
-        val matchesAction = selectedActionFilter == "All" || log.action.equals(selectedActionFilter, ignoreCase = true)
+        val matchesFirm = selectedFirmFilter == "All" || log.firmName.equals(selectedFirmFilter, ignoreCase = true)
 
-        matchesSearch && matchesCategory && matchesRole && matchesFirm && matchesDate && matchesAction
+        matchesSearch && matchesCategory && matchesRole && matchesFirm
     }
 
     Column(
@@ -7841,40 +7801,6 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
             }
         }
 
-        // Date Filter
-        Text("Date Range:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            dateFilters.forEach { df ->
-                FilterChip(
-                    selected = selectedDateFilter == df,
-                    onClick = { selectedDateFilter = df },
-                    label = { Text(df, fontSize = 10.sp) }
-                )
-            }
-        }
-
-        // Action Filter
-        Text("Action Type:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            actionFilters.forEach { af ->
-                FilterChip(
-                    selected = selectedActionFilter == af,
-                    onClick = { selectedActionFilter = af },
-                    label = { Text(af, fontSize = 10.sp) }
-                )
-            }
-        }
-
         Spacer(modifier = Modifier.height(8.dp))
 
         // Logs List
@@ -7905,7 +7831,7 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(filteredLogs.take(pageLimit), key = { it.id }) { log ->
+                items(filteredLogs, key = { it.id }) { log ->
                     val isExpanded = expandedLogId == log.id
                     val isDelet = log.action.contains("DELETE", ignoreCase = true)
                     val isUpdat = log.action.contains("UPDATE", ignoreCase = true) || log.action.contains("EDIT", ignoreCase = true)
@@ -8170,22 +8096,6 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
-                        }
-                    }
-                }
-
-                if (filteredLogs.size > pageLimit) {
-                    item {
-                        LaunchedEffect(Unit) {
-                            pageLimit += 50
-                        }
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }

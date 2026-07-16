@@ -32,7 +32,10 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
         list.filter { it.firmName == currentId || it.firmName == firm?.name }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val logs = repository.logs.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val logs = combine(repository.logs, activeFirm) { list, firm ->
+        val currentId = firm?.id ?: "F001"
+        list.filter { it.firmName == currentId || it.firmName == firm?.name }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // State for Search & Filters
     private val _firestoreUser = MutableStateFlow<com.example.data.FirestoreUser?>(null)
@@ -1238,7 +1241,6 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
             android.util.Log.e("RanisaViewModel", "FirebaseAuth sign out error", e)
         }
         _firestoreUser.value = null
-        com.example.data.FirebaseService.activeUserProfile = null
         repository.logoutUser()
     }
 
