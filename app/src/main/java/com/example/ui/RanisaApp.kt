@@ -1906,7 +1906,7 @@ fun BillEntryScreen(
 
     // Computed payment values
     val previousPaymentsForBill = allPayments.filter { it.billNo == billNumber && it.firm == firmName }
-    val currentReceivedAmount = paymentReceivedInput.toDoubleOrNull() ?: 0.0
+    val currentReceivedAmount = if (billId == -1) 0.0 else previousPaymentsForBill.sumOf { it.paymentAmount }
     val remainingBalance = balance
     val computedPaymentStatus = when {
         currentReceivedAmount == 0.0 -> "Pending"
@@ -1915,7 +1915,7 @@ fun BillEntryScreen(
     }
 
     // Real-time automatic computations
-    LaunchedEffect(itemEntries, paymentReceivedInput, discountPercent, commissionPercent, lorryFreight, ddAmount, cashCutting, remark1) {
+    LaunchedEffect(itemEntries, currentReceivedAmount, discountPercent, commissionPercent, lorryFreight, ddAmount, cashCutting, remark1) {
         val totalBagsWeight = itemEntries.sumOf { it.qtls * 100.0 }
         totalWeightKg = totalBagsWeight
 
@@ -3178,21 +3178,6 @@ fun BillEntryScreen(
                 if (billNumber.isBlank() || sellerName.isBlank() || buyerName.isBlank()) {
                     Toast.makeText(context, "Please enter Bill No, Seller Name and Buyer Name", Toast.LENGTH_SHORT).show()
                 } else {
-                    if (currentReceivedAmount > 0.0) {
-                        viewModel.savePayment(
-                            buyerName = buyerName,
-                            date = paymentDate,
-                            amount = currentReceivedAmount,
-                            paymentMode = paymentMode,
-                            bankName = referenceNumber,
-                            remarks = paymentRemarks,
-                            billNo = billNumber,
-                            firm = firmName,
-                            sellerName = sellerName,
-                            referenceNumber = referenceNumber,
-                            remainingBalance = balance
-                        )
-                    }
                     if (billId == -1) {
                         viewModel.saveBill(currentBill)
                     } else {
