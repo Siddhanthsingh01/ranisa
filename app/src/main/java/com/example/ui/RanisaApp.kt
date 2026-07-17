@@ -7671,55 +7671,173 @@ fun ReportsScreen(viewModel: RanisaViewModel) {
         }
     }
 }
-
-// ==========================================
-// AUDIT LOG HISTORY SCREEN
-// ==========================================
-@OptIn(ExperimentalLayoutApi::class)
+                    @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun LogHistoryScreen(viewModel: RanisaViewModel) {
-    val logs by viewModel.logs.collectAsState()
-    val firestoreUser by viewModel.firestoreUser.collectAsState()
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedCategoryFilter by remember { mutableStateOf("All") }
-    var selectedRoleFilter by remember { mutableStateOf("All") }
-    var selectedFirmFilter by remember { mutableStateOf("All") }
-    var expandedLogId by remember { mutableStateOf<Int?>(null) }
+    val activeUser by viewModel.activeUser.collectAsState(initial = null)
+    val currentUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+    val userEmail = currentUser?.email ?: ""
+    val isAdmin = activeUser?.role?.equals("Admin", ignoreCase = true) == true ||
+                  userEmail.equals("crsidhant01@gmail.com", ignoreCase = true) ||
+                  userEmail.equals("admin@ranisa.com", ignoreCase = true) ||
+                  userEmail.contains("admin", ignoreCase = true)
 
-    val categories = listOf("All", "Bills", "Payments", "PDF/Print", "Auth", "Others")
-    val roles = listOf("All", "Admin", "Broker", "Accountant", "Viewer")
-    val firms = listOf("All", "Lalit Rice Broker", "Hare Krishna Rice Broker")
-
-    val filteredLogs = logs.filter { log ->
-        val matchesSearch = searchQuery.isBlank() ||
-                log.action.contains(searchQuery, ignoreCase = true) ||
-                log.userName.contains(searchQuery, ignoreCase = true) ||
-                log.screen.contains(searchQuery, ignoreCase = true) ||
-                log.billNo.contains(searchQuery, ignoreCase = true) ||
-                log.partyName.contains(searchQuery, ignoreCase = true) ||
-                log.oldValue.contains(searchQuery, ignoreCase = true) ||
-                log.newValue.contains(searchQuery, ignoreCase = true)
-
-        val matchesCategory = when (selectedCategoryFilter) {
-            "All" -> true
-            "Bills" -> log.action.contains("BILL", ignoreCase = true)
-            "Payments" -> log.action.contains("PAYMENT", ignoreCase = true)
-            "PDF/Print" -> log.action.contains("PDF", ignoreCase = true) || log.action.equals("Print", ignoreCase = true)
-            "Auth" -> log.action.equals("Login", ignoreCase = true) || log.action.equals("Logout", ignoreCase = true) || log.action.contains("User", ignoreCase = true)
-            "Others" -> !log.action.contains("BILL", ignoreCase = true) &&
-                        !log.action.contains("PAYMENT", ignoreCase = true) &&
-                        !log.action.contains("PDF", ignoreCase = true) &&
-                        !log.action.equals("Print", ignoreCase = true) &&
-                        !log.action.equals("Login", ignoreCase = true) &&
-                        !log.action.equals("Logout", ignoreCase = true) &&
-                        !log.action.contains("User", ignoreCase = true)
-            else -> true
+    if (!isAdmin) {
+        Box(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "Access Denied",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(64.dp)
+                    )
+                    Text(
+                        text = "Access Denied",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Text(
+                        text = "Only Administrator accounts are permitted to access the Enterprise Global Audit Log registry. Normal users cannot view audit histories.",
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
         }
+        return
+    }
 
-        val matchesRole = selectedRoleFilter == "All" || log.userRole.equals(selectedRoleFilter, ignoreCase = true)
-        val matchesFirm = selectedFirmFilter == "All" || log.firmName.equals(selectedFirmFilter, ignoreCase = true)
+    val activeFirm by viewModel.activeFirm.collectAsState()
+    var isGlobalAdminMode by remember { mutableStateOf(true) }
 
-        matchesSearch && matchesCategory && matchesRole && matchesFirm
+    var logsList by remember { mutableStateOf(listOf<com.google.firebase.firestore.DocumentSnapshot>()) }
+    var lastDoc by remember { mutableStateOf<com.google.firebase.firestore.DocumentSnapshot?>(null) }
+    var hasMore by remember { mutableStateOf(true) }
+    var isLoading by remember { mutableStateOf(false) }
+    var isInitialLoading by remember { mutableStateOf(true) }
+
+    var actionFilter by remember { mutableStateOf("All") }
+    var moduleFilter by remember { mutableStateOf("All") }
+    var statusFilter by remember { mutableStateOf("All") }
+    var emailFilter by remember { mutableStateOf("All") }
+    var searchQuery by remember { mutableStateOf("") }
+
+    var selectedLogForDetail by remember { mutableStateOf<com.google.firebase.firestore.DocumentSnapshot?>(null) }
+
+    // Dynamic filters derived from loaded logs to avoid hiding all data
+    val actionTypes = remember(logsList) {
+        val list = mutableListOf("All")
+        logsList.forEach { doc ->
+            val act = doc.getString("actionType") ?: doc.getString("action") ?: ""
+            if (act.isNotBlank() && !list.contains(act)) {
+                list.add(act)
+            }
+        }
+        list
+    }
+
+    val modules = remember(logsList) {
+        val list = mutableListOf("All")
+        logsList.forEach { doc ->
+            val mod = doc.getString("module") ?: doc.getString("screen") ?: ""
+            if (mod.isNotBlank() && !list.contains(mod)) {
+                list.add(mod)
+            }
+        }
+        list
+    }
+
+    val userEmails = remember(logsList) {
+        val list = mutableListOf("All")
+        logsList.forEach { doc ->
+            val email = doc.getString("userEmail") ?: doc.getString("user") ?: ""
+            if (email.isNotBlank() && !list.contains(email)) {
+                list.add(email)
+            }
+        }
+        list
+    }
+
+    val scope = rememberCoroutineScope()
+
+    fun loadInitialLogs() {
+        isLoading = true
+        isInitialLoading = true
+        scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+            try {
+                val firmId = activeFirm?.let { com.example.data.FirebaseService.getSanitizedFirmId(it.name) } ?: "F001"
+                val res = com.example.data.FirebaseService.getEnterpriseAuditLogs(
+                    currentFirmId = firmId,
+                    isGlobalAdminMode = isGlobalAdminMode,
+                    limit = 300
+                )
+                logsList = res.first
+                lastDoc = res.first.lastOrNull()
+                hasMore = res.second
+            } catch (e: Exception) {
+                android.util.Log.e("LogHistoryScreen", "Failed to load audit logs", e)
+            } finally {
+                isLoading = false
+                isInitialLoading = false
+            }
+        }
+    }
+
+    fun loadMoreLogs() {
+        // No-op because 300 initial client-side logs is generous and pre-sorted
+    }
+
+    LaunchedEffect(isGlobalAdminMode, activeFirm) {
+        loadInitialLogs()
+    }
+
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    val filteredLogs = remember(logsList, searchQuery, actionFilter, moduleFilter, statusFilter, emailFilter, isInitialLoading) {
+        if (isInitialLoading) {
+            listOf()
+        } else {
+            logsList.filter { doc ->
+                val actionType = doc.getString("actionType") ?: doc.getString("action") ?: ""
+                val actionMatch = actionFilter == "All" || actionType.equals(actionFilter, ignoreCase = true)
+                
+                val module = doc.getString("module") ?: doc.getString("screen") ?: ""
+                val moduleMatch = moduleFilter == "All" || module.equals(moduleFilter, ignoreCase = true)
+                
+                val status = doc.getString("status") ?: "Success"
+                val statusMatch = statusFilter == "All" || status.equals(statusFilter, ignoreCase = true)
+                
+                val userEmail = doc.getString("userEmail") ?: doc.getString("user") ?: ""
+                val emailMatch = emailFilter == "All" || userEmail.equals(emailFilter, ignoreCase = true) || (doc.getString("userName") ?: "").equals(emailFilter, ignoreCase = true)
+                
+                val userName = doc.getString("userName") ?: doc.getString("user") ?: ""
+                val recordTitle = doc.getString("recordTitle") ?: doc.getString("details") ?: ""
+                val docId = doc.getString("documentId") ?: doc.id
+                
+                val queryMatch = searchQuery.isBlank() ||
+                    userName.contains(searchQuery, ignoreCase = true) ||
+                    userEmail.contains(searchQuery, ignoreCase = true) ||
+                    recordTitle.contains(searchQuery, ignoreCase = true) ||
+                    actionType.contains(searchQuery, ignoreCase = true) ||
+                    module.contains(searchQuery, ignoreCase = true) ||
+                    docId.contains(searchQuery, ignoreCase = true)
+                    
+                actionMatch && moduleMatch && statusMatch && emailMatch && queryMatch
+            }
+        }
     }
 
     Column(
@@ -7727,107 +7845,186 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Text(
-            text = "Audit Trail Registry",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Text(
-            text = "Immutable, system-wide log capturing all user sessions, contract mutations, payment lifecycles, and print jobs.",
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "Enterprise Global Audit Log",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = "Append-only system-wide activity registry for compliance and system tracking.",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(
+                onClick = { loadInitialLogs() },
+                modifier = Modifier.testTag("refresh_audit_logs_btn")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Refresh",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
 
-        // Search Field
-        EnterpriseSearchField(
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Global Admin Mode (All Firms)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    text = if (isGlobalAdminMode) "Using collectionGroup('logs') across all firms" else "Showing logs only for active firm: ${activeFirm?.name ?: "None"}",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = isGlobalAdminMode,
+                onCheckedChange = { isGlobalAdminMode = it },
+                modifier = Modifier.testTag("global_admin_mode_switch")
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
-            placeholder = "Search by user, action, party, bill no, or details",
-            modifier = Modifier.fillMaxWidth(),
-            onClear = { searchQuery = "" },
-            testTag = "audit_log_search_input"
+            label = { Text("Search logs (user, title, email, doc ID, action)") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("audit_search_input"),
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search Icon") },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(Icons.Default.Close, contentDescription = "Clear search")
+                    }
+                }
+            },
+            singleLine = true
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // Category Filter
-        Text("Categories:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            categories.forEach { cat ->
-                FilterChip(
-                    selected = selectedCategoryFilter == cat,
-                    onClick = { selectedCategoryFilter = cat },
-                    label = { Text(cat, fontSize = 11.sp) }
-                )
+        Text("Quick Filter Parameters:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Module: ", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(60.dp))
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    modules.forEach { mod ->
+                        FilterChip(
+                            selected = moduleFilter == mod,
+                            onClick = { moduleFilter = mod },
+                            label = { Text(mod, fontSize = 10.sp) }
+                        )
+                    }
+                }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Action: ", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(60.dp))
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    actionTypes.forEach { act ->
+                        FilterChip(
+                            selected = actionFilter == act,
+                            onClick = { actionFilter = act },
+                            label = { Text(act, fontSize = 10.sp) }
+                        )
+                    }
+                }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("User: ", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(60.dp))
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    userEmails.forEach { email ->
+                        val displayEmail = if (email.contains("@")) email.substringBefore("@") else email
+                        FilterChip(
+                            selected = emailFilter == email,
+                            onClick = { emailFilter = email },
+                            label = { Text(displayEmail, fontSize = 10.sp) }
+                        )
+                    }
+                }
             }
         }
 
-        // Role Filter (Firm Ledger filter removed)
-        Text("Role:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            roles.forEach { r ->
-                FilterChip(
-                    selected = selectedRoleFilter == r,
-                    onClick = { selectedRoleFilter = r },
-                    label = { Text(r, fontSize = 10.sp) }
-                )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        if (isInitialLoading) {
+            Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
             }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Logs List
-        if (filteredLogs.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.Info,
-                        contentDescription = "No logs",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("No matching audit logs found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else if (filteredLogs.isEmpty()) {
+            Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.Info, contentDescription = "No logs", modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                    Text("No matching enterprise audit logs found.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         } else {
-            val currentEmail = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.email?.trim() ?: ""
-            val profileFullName = firestoreUser?.fullName?.trim() ?: ""
-            val profileEmail = firestoreUser?.email?.trim() ?: ""
-
             LazyColumn(
+                state = listState,
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(filteredLogs, key = { it.id }) { log ->
-                    val isExpanded = expandedLogId == log.id
-                    val isDelet = log.action.contains("DELETE", ignoreCase = true)
-                    val isUpdat = log.action.contains("UPDATE", ignoreCase = true) || log.action.contains("EDIT", ignoreCase = true)
-                    val isCreat = log.action.contains("CREATE", ignoreCase = true) || log.action.contains("ADD", ignoreCase = true)
-                    val isPdf = log.action.contains("PDF", ignoreCase = true) || log.action.equals("Print", ignoreCase = true)
+                items(filteredLogs, key = { doc -> doc.id }) { doc ->
+                    val index = filteredLogs.indexOf(doc)
+                    if (index >= filteredLogs.size - 5) {
+                        LaunchedEffect(filteredLogs.size) {
+                            loadMoreLogs()
+                        }
+                    }
+                    val actionType = doc.getString("actionType") ?: "SYSTEM"
+                    val userName = doc.getString("userName") ?: "System"
+                    val userEmail = doc.getString("userEmail") ?: ""
+                    val recordTitle = doc.getString("recordTitle") ?: ""
+                    val module = doc.getString("module") ?: "System"
+                    val status = doc.getString("status") ?: "Success"
+                    
+                    val timestamp = doc.getTimestamp("timestamp")
+                    val formattedTime = if (timestamp != null) {
+                        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(timestamp.toDate())
+                    } else {
+                        "Just now"
+                    }
+
+                    val isDelet = actionType.contains("DELETE", ignoreCase = true)
+                    val isUpdat = actionType.contains("UPDATE", ignoreCase = true)
+                    val isCreat = actionType.contains("CREATE", ignoreCase = true)
 
                     val actionBg = when {
                         isDelet -> MaterialTheme.colorScheme.errorContainer
                         isUpdat -> MaterialTheme.colorScheme.tertiaryContainer
                         isCreat -> MaterialTheme.colorScheme.primaryContainer
-                        isPdf -> Color(0xFFFDE8E8)
                         else -> MaterialTheme.colorScheme.secondaryContainer
                     }
 
@@ -7835,53 +8032,20 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
                         isDelet -> MaterialTheme.colorScheme.onErrorContainer
                         isUpdat -> MaterialTheme.colorScheme.onTertiaryContainer
                         isCreat -> MaterialTheme.colorScheme.onPrimaryContainer
-                        isPdf -> Color(0xFFC81E1E)
                         else -> MaterialTheme.colorScheme.onSecondaryContainer
                     }
 
-                    val resolvedDisplayName = remember(log.userName, firestoreUser) {
-                        val trimmedName = log.userName.trim()
-                        val isCurrentUser = trimmedName.equals(currentEmail, ignoreCase = true) ||
-                                            (profileEmail.isNotEmpty() && trimmedName.equals(profileEmail, ignoreCase = true)) ||
-                                            trimmedName.equals("crsidhant01@gmail.com", ignoreCase = true)
-                        
-                        when {
-                            isCurrentUser && profileFullName.isNotEmpty() -> profileFullName
-                            isCurrentUser -> {
-                                val usernameFromEmail = currentEmail.substringBefore("@")
-                                if (usernameFromEmail.isNotEmpty()) usernameFromEmail else trimmedName
-                            }
-                            trimmedName.contains("@") -> {
-                                val usernamePart = trimmedName.substringBefore("@")
-                                if (usernamePart.isNotEmpty()) usernamePart else trimmedName
-                            }
-                            else -> trimmedName
-                        }
-                    }
-
-                    val avatarText = remember(resolvedDisplayName) {
-                        val parts = resolvedDisplayName.split(" ").filter { it.isNotEmpty() }
-                        if (parts.size >= 2) {
-                            (parts[0].take(1) + parts[1].take(1)).uppercase()
-                        } else if (parts.isNotEmpty()) {
-                            parts[0].take(2).uppercase()
-                        } else {
-                            "UN"
-                        }
-                    }
+                    val avatarText = if (userName.isNotBlank()) userName.take(2).uppercase() else "UN"
 
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { expandedLogId = if (isExpanded) null else log.id }
-                            .testTag("audit_log_item_${log.id}"),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isExpanded) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface
-                        ),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            .clickable { selectedLogForDetail = doc }
+                            .testTag("audit_log_item_${doc.id}"),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
-                            // Header Row
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -7891,50 +8055,26 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    // Initials Avatar
                                     Box(
                                         modifier = Modifier
                                             .size(32.dp)
-                                            .background(
-                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                                RoundedCornerShape(50)
-                                            ),
+                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(16.dp)),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text(
-                                            text = avatarText,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
+                                        Text(avatarText, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                     }
-
                                     Column {
-                                        Text(
-                                            text = resolvedDisplayName,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        if (log.userRole.isNotBlank()) {
-                                            Text(
-                                                text = "Role: ${log.userRole}",
-                                                fontSize = 10.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
+                                        Text(userName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                        if (userEmail.isNotBlank()) {
+                                            Text(userEmail, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     }
                                 }
-
-                                Text(
-                                    text = "${log.date} ${log.time}",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Text(formattedTime, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // Action badge and Screen Name
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -7945,143 +8085,270 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
                                         .background(actionBg, RoundedCornerShape(6.dp))
                                         .padding(horizontal = 8.dp, vertical = 4.dp)
                                 ) {
-                                    Text(
-                                        text = log.action,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = actionColor
-                                    )
+                                    Text(actionType, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = actionColor)
                                 }
 
-                                Column(horizontalAlignment = Alignment.End) {
-                                    Text(
-                                        text = "Screen: ${log.screen}",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    val displayLogFirm = when (log.firmName) {
-                                        "F001" -> "Lalit Rice Broker"
-                                        "F002" -> "Hare Krishna Rice Broker"
-                                        else -> log.firmName.ifBlank { "N/A" }
-                                    }
-                                    Text(
-                                        text = "Firm: $displayLogFirm",
-                                        fontSize = 10.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                                    )
-                                }
-                            }
-
-                            if (log.billNo.isNotBlank() || log.partyName.isNotBlank()) {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    if (log.billNo.isNotBlank()) {
-                                        Text("Bill No: ${log.billNo}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                    }
-                                    if (log.partyName.isNotBlank()) {
-                                        Text("Party: ${log.partyName}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
-                                    }
-                                }
-                            }
-
-                            // Details / Comparisons
-                            Spacer(modifier = Modifier.height(8.dp))
-                            if (isExpanded) {
-                                // Expandable Detail Panel
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(
-                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                            RoundedCornerShape(8.dp)
-                                        )
-                                        .padding(10.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text("Log Metadata:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                    val displayLogFirm = when (log.firmName) {
-                                        "F001" -> "Lalit Rice Broker"
-                                        "F002" -> "Hare Krishna Rice Broker"
-                                        else -> log.firmName.ifBlank { "N/A" }
-                                    }
-                                    Text("Firm Ledger: $displayLogFirm", fontSize = 11.sp)
-                                    Text("Device: ${log.device.ifBlank { "Android Device" }}", fontSize = 11.sp)
-                                    Text("Session Reference: ${log.ipSessionId.ifBlank { "N/A" }}", fontSize = 11.sp)
-
-                                    if (log.oldValue.isNotBlank() || log.newValue.isNotBlank()) {
-                                        Divider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                        Text("Data Modifications:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                        
-                                        if (log.oldValue.isNotBlank() && log.newValue.isNotBlank()) {
-                                            // Show comparative changes
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text("PREVIOUS VALUE", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFFEF4444))
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .background(Color(0xFFFEF2F2), RoundedCornerShape(4.dp))
-                                                            .border(BorderStroke(1.dp, Color(0xFFFCA5A5)), RoundedCornerShape(4.dp))
-                                                            .padding(6.dp)
-                                                    ) {
-                                                        Text(log.oldValue, fontSize = 11.sp, color = Color(0xFF991B1B))
-                                                    }
-                                                }
-
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text("UPDATED VALUE", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF10B981))
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .background(Color(0xFFECFDF5), RoundedCornerShape(4.dp))
-                                                            .border(BorderStroke(1.dp, Color(0xFF6EE7B7)), RoundedCornerShape(4.dp))
-                                                            .padding(6.dp)
-                                                    ) {
-                                                        Text(log.newValue, fontSize = 11.sp, color = Color(0xFF065F46))
-                                                    }
-                                                }
-                                            }
-                                        } else {
-                                            // Either only oldValue or only newValue
-                                            val singleText = log.newValue.ifBlank { log.oldValue }
-                                            val title = if (log.newValue.isNotBlank()) "CREATED DETAILS" else "REMOVED RECORD DETAILS"
-                                            val borderC = if (log.newValue.isNotBlank()) Color(0xFF6EE7B7) else Color(0xFFFCA5A5)
-                                            val bgC = if (log.newValue.isNotBlank()) Color(0xFFECFDF5) else Color(0xFFFEF2F2)
-                                            val txtC = if (log.newValue.isNotBlank()) Color(0xFF065F46) else Color(0xFF991B1B)
-
-                                            Text(title, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = txtC)
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .background(bgC, RoundedCornerShape(4.dp))
-                                                    .border(BorderStroke(1.dp, borderC), RoundedCornerShape(4.dp))
-                                                    .padding(8.dp)
-                                            ) {
-                                                Text(singleText, fontSize = 11.sp, color = txtC)
-                                            }
-                                        }
-                                    }
-                                }
-                            } else {
-                                // Collapsed short summary
-                                val summary = when {
-                                    log.newValue.isNotBlank() -> log.newValue
-                                    log.oldValue.isNotBlank() -> log.oldValue
-                                    else -> "No change values recorded."
-                                }
                                 Text(
-                                    text = summary,
+                                    text = "Module: $module",
                                     fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+
+                            if (recordTitle.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = recordTitle,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                val statusColor = if (status.equals("Success", ignoreCase = true)) Color(0xFF0D9488) else Color(0xFFE11D48)
+                                Box(
+                                    modifier = Modifier
+                                        .background(statusColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(status.uppercase(), fontSize = 9.sp, fontWeight = FontWeight.Bold, color = statusColor)
+                                }
+
+                                val docId = doc.getString("documentId") ?: ""
+                                if (docId.isNotBlank()) {
+                                    Text("Ref ID: ${docId.take(12)}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
                         }
+                    }
+                }
+
+                if (isLoading) {
+                    item {
+                        Box(modifier = Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    selectedLogForDetail?.let { doc ->
+        val logId = doc.getString("logId") ?: doc.id
+        val userName = doc.getString("userName") ?: "System"
+        val userEmail = doc.getString("userEmail") ?: "N/A"
+        val userRole = doc.getString("userRole") ?: "User"
+        val actionType = doc.getString("actionType") ?: "SYSTEM"
+        val module = doc.getString("module") ?: "System"
+        val collectionName = doc.getString("collectionName") ?: "N/A"
+        val documentId = doc.getString("documentId") ?: "N/A"
+        val recordTitle = doc.getString("recordTitle") ?: "N/A"
+        val oldData = doc.getString("oldData") ?: ""
+        val newData = doc.getString("newData") ?: ""
+        val changedFields = doc.getString("changedFields") ?: ""
+        val status = doc.getString("status") ?: "Success"
+        val deviceModel = doc.getString("deviceModel") ?: "N/A"
+        val androidVersion = doc.getString("androidVersion") ?: "N/A"
+        val appVersion = doc.getString("appVersion") ?: "1.0.0"
+        val sessionId = doc.getString("sessionId") ?: "N/A"
+
+        val timestamp = doc.getTimestamp("timestamp")
+        val formattedTime = if (timestamp != null) {
+            SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault()).format(timestamp.toDate())
+        } else {
+            "Just now"
+        }
+
+        fun formatJson(json: String): String {
+            if (json.isBlank()) return "None"
+            return try {
+                val obj = org.json.JSONObject(json)
+                obj.toString(4)
+            } catch (e: Exception) {
+                try {
+                    val arr = org.json.JSONArray(json)
+                    arr.toString(4)
+                } catch (e2: Exception) {
+                    json
+                }
+            }
+        }
+
+        val prettyOldJson = remember(oldData) { formatJson(oldData) }
+        val prettyNewJson = remember(newData) { formatJson(newData) }
+
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { selectedLogForDetail = null },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surface),
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            IconButton(onClick = { selectedLogForDetail = null }) {
+                                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                            }
+                            Column {
+                                Text("Audit Log Deep Inspection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Text("ID: $logId", fontSize = 10.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
+                            }
+                        }
+                        IconButton(onClick = { selectedLogForDetail = null }) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(16.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(actionType, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                                    }
+                                    Text(formattedTime, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+
+                                Text("Record: $recordTitle", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text("Module / Collection: $module ($collectionName)", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Target Document ID: $documentId", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+
+                        Text("Initiator Identity Information", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                                    Text("Full Name:", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(userName, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                                    Text("Registered Email:", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(userEmail, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                                    Text("Assigned Security Role:", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(userRole, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+
+                        Text("Device Telemetry & Environment", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                                    Text("Device Hardware Model:", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(deviceModel, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                                    Text("Android Platform Version:", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("Android $androidVersion", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                                    Text("Application Code Version:", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("v$appVersion", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                                    Text("Global Session Index:", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(sessionId, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                                }
+                            }
+                        }
+
+                        if (changedFields.isNotBlank()) {
+                            Text("Modified Field Attributes", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFFD97706))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFFFEF3C7), RoundedCornerShape(6.dp))
+                                    .border(BorderStroke(1.dp, Color(0xFFFCD34D)), RoundedCornerShape(6.dp))
+                                    .padding(10.dp)
+                            ) {
+                                Text(changedFields, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF92400E))
+                            }
+                        }
+
+                        Text("Database State Modification Payload", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Column {
+                                Text("PREVIOUS STATE (BEFORE VALUE / RECORD DELETION)", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color(0xFFEF4444))
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFFFEF2F2), RoundedCornerShape(6.dp))
+                                        .border(BorderStroke(1.dp, Color(0xFFFCA5A5)), RoundedCornerShape(6.dp))
+                                        .padding(10.dp)
+                                ) {
+                                    Text(
+                                        text = prettyOldJson,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF991B1B)
+                                    )
+                                }
+                            }
+
+                            Column {
+                                Text("UPDATED STATE (AFTER VALUE / NEW ENTRY DATA)", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color(0xFF10B981))
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFFECFDF5), RoundedCornerShape(6.dp))
+                                        .border(BorderStroke(1.dp, Color(0xFF6EE7B7)), RoundedCornerShape(6.dp))
+                                        .padding(10.dp)
+                                ) {
+                                    Text(
+                                        text = prettyNewJson,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF065F46)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(24.dp))
                     }
                 }
             }

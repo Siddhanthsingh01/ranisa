@@ -70,12 +70,24 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
     private var brokersRegistration: com.google.firebase.firestore.ListenerRegistration? = null
     private var settingsRegistration: com.google.firebase.firestore.ListenerRegistration? = null
 
+    companion object {
+        var currentUsernameVal: String = "Admin"
+        var currentUserRoleVal: String = "Admin"
+        var currentSessionId: String = "S_" + java.util.UUID.randomUUID().toString().take(8)
+    }
+
     init {
         FirebaseService.startSync(application, repository)
         fetchAndSetFirestoreUser()
         viewModelScope.launch {
             activeFirm.collect { firm ->
                 startListeningToMasterData(firm)
+            }
+        }
+        viewModelScope.launch {
+            activeUser.collect { user ->
+                currentUsernameVal = user?.username ?: "Admin"
+                currentUserRoleVal = user?.role ?: "Admin"
             }
         }
     }
@@ -1235,6 +1247,26 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
      * Clears the active session and logs out the user.
      */
     fun logoutUser() {
+        val oldUsername = currentUsernameVal
+        val oldRole = currentUserRoleVal
+        val email = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.email ?: ""
+        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+        viewModelScope.launch {
+            try {
+                FirebaseService.logEnterpriseAudit(
+                    context = getApplication(),
+                    actionType = "LOGOUT",
+                    module = "Auth",
+                    collectionName = "users",
+                    documentId = uid,
+                    recordTitle = email,
+                    userOverride = oldUsername,
+                    roleOverride = oldRole
+                )
+            } catch (e: Exception) {
+                Log.e("RanisaViewModel", "Failed logout logging", e)
+            }
+        }
         try {
             com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
         } catch (e: Exception) {

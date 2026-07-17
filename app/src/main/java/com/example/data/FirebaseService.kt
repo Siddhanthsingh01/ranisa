@@ -150,6 +150,21 @@ object FirebaseService {
             )
 
             Log.d(TAG, "Login Success for user UID: $uid")
+            try {
+                logEnterpriseAudit(
+                    context = context,
+                    actionType = "LOGIN",
+                    module = "Auth",
+                    collectionName = "users",
+                    documentId = uid,
+                    recordTitle = enteredEmail,
+                    newDataMap = mapOf("email" to enteredEmail, "fullName" to fullName),
+                    userOverride = fullName,
+                    roleOverride = "Admin"
+                )
+            } catch (le: Exception) {
+                Log.e(TAG, "Failed login logging", le)
+            }
             Result.success(firestoreUser)
         } catch (e: com.google.firebase.auth.FirebaseAuthInvalidUserException) {
             Result.failure(Exception("User not found"))
@@ -264,6 +279,108 @@ object FirebaseService {
         }
     }
 
+    fun contractBillToMap(bill: ContractBill?): Map<String, Any>? {
+        if (bill == null) return null
+        return mapOf(
+            "billNumber" to bill.billNumber,
+            "date" to bill.date,
+            "sellerName" to bill.sellerName,
+            "buyerName" to bill.buyerName,
+            "gstNo" to bill.gstNo,
+            "particulars" to bill.particulars,
+            "bags" to bill.bags,
+            "quintals" to bill.quintals,
+            "rate" to bill.rate,
+            "packing" to bill.packing,
+            "transport" to bill.transport,
+            "delivery" to bill.delivery,
+            "lorryNo" to bill.lorryNo,
+            "payment" to bill.payment,
+            "mobileNo" to bill.mobileNo,
+            "brand" to bill.brand,
+            "lorryFreight" to bill.lorryFreight,
+            "creditDays" to bill.creditDays,
+            "amountInWords" to bill.amountInWords,
+            "billAmount" to bill.billAmount,
+            "balance" to bill.balance,
+            "place" to bill.place,
+            "bankName" to bill.bankName,
+            "remarks" to bill.remarks,
+            "ddAmount" to bill.ddAmount,
+            "cashCutting" to bill.cashCutting,
+            "totalReceived" to bill.totalReceived,
+            "remainingBalance" to bill.remainingBalance,
+            "paymentStatus" to bill.paymentStatus,
+            "lastPaymentDate" to bill.lastPaymentDate,
+            "sellerAddress" to bill.sellerAddress,
+            "buyerAddress" to bill.buyerAddress,
+            "itemsJson" to bill.itemsJson,
+            "discountPercent" to bill.discountPercent,
+            "commissionPercent" to bill.commissionPercent,
+            "remark1" to bill.remark1,
+            "remark2" to bill.remark2,
+            "brokerName" to bill.brokerName,
+            "brokerId" to bill.brokerId,
+            "eb" to bill.eb
+        )
+    }
+
+    fun paymentToMap(payment: Payment?): Map<String, Any>? {
+        if (payment == null) return null
+        return mapOf(
+            "paymentId" to payment.paymentId,
+            "billNo" to payment.billNo,
+            "firm" to payment.firm,
+            "sellerName" to payment.sellerName,
+            "buyerName" to payment.buyerName,
+            "paymentAmount" to payment.paymentAmount,
+            "paymentDate" to payment.paymentDate,
+            "paymentMode" to payment.paymentMode,
+            "referenceNumber" to payment.referenceNumber,
+            "remarks" to payment.remarks,
+            "receivedBy" to payment.receivedBy,
+            "discountPercent" to payment.discountPercent,
+            "discountAmount" to payment.discountAmount,
+            "commissionPercent" to payment.commissionPercent,
+            "commissionAmount" to payment.commissionAmount,
+            "remarks1" to payment.remarks1,
+            "remarks2" to payment.remarks2,
+            "alreadyPaidAmount" to payment.alreadyPaidAmount,
+            "pendingAmount" to payment.pendingAmount,
+            "billAmount" to payment.billAmount
+        )
+    }
+
+    fun sellerToMap(sellerName: String, mobile: String, place: String, gstNo: String, millName: String, address: String): Map<String, Any> {
+        return mapOf(
+            "sellerName" to sellerName,
+            "mobile" to mobile,
+            "place" to place,
+            "gstNo" to gstNo,
+            "millName" to millName,
+            "address" to address
+        )
+    }
+
+    fun buyerToMap(buyerName: String, mobile: String, place: String, gstNo: String, firmName: String, address: String): Map<String, Any> {
+        return mapOf(
+            "buyerName" to buyerName,
+            "mobile" to mobile,
+            "place" to place,
+            "gstNo" to gstNo,
+            "firmName" to firmName,
+            "address" to address
+        )
+    }
+
+    fun brokerToMap(brokerName: String, mobile: String, address: String): Map<String, Any> {
+        return mapOf(
+            "brokerName" to brokerName,
+            "mobile" to mobile,
+            "address" to address
+        )
+    }
+
     fun getBillNodeKey(billNumber: String): String {
         val digits = billNumber.filter { it.isDigit() }
         val padded = if (digits.isNotEmpty()) {
@@ -273,6 +390,147 @@ object FirebaseService {
             billNumber
         }
         return "BILL_$padded"
+    }
+
+    suspend fun logEnterpriseAudit(
+        context: Context,
+        actionType: String, // CREATE, UPDATE, DELETE, LOGIN, LOGOUT, etc.
+        module: String, // Bills, Payments, Sellers, Buyers, Brokers, Auth, Settings, etc.
+        collectionName: String, // contract_bills, payments, sellers, buyers, brokers, users
+        documentId: String,
+        recordTitle: String,
+        oldDataMap: Map<String, Any>? = null,
+        newDataMap: Map<String, Any>? = null,
+        status: String = "Success",
+        userOverride: String? = null,
+        roleOverride: String? = null,
+        customChangedFields: String? = null,
+        batch: com.google.firebase.firestore.WriteBatch? = null
+    ) {
+        try {
+            val db = FirebaseFirestore.getInstance()
+            val auditLogRef = db.collection("audit_logs").document()
+            val logId = auditLogRef.id
+
+            val currentUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+            val email = currentUser?.email ?: ""
+            val uid = currentUser?.uid ?: ""
+
+            // Determine user/role from state or overrides
+            val finalUser = userOverride ?: com.example.ui.RanisaViewModel.currentUsernameVal ?: "Admin"
+            val finalRole = roleOverride ?: com.example.ui.RanisaViewModel.currentUserRoleVal ?: "Admin"
+
+            // Compute changed fields if we have old and new data
+            var changedFieldsStr = customChangedFields ?: ""
+            val oldJson = if (oldDataMap != null) {
+                org.json.JSONObject(oldDataMap).toString()
+            } else ""
+
+            val newJson = if (newDataMap != null) {
+                org.json.JSONObject(newDataMap).toString()
+            } else ""
+
+            if (oldDataMap != null && newDataMap != null && customChangedFields == null) {
+                val changedList = mutableListOf<String>()
+                for ((key, value) in newDataMap) {
+                    val oldValue = oldDataMap[key]
+                    if (oldValue != value && key != "updatedTime" && key != "lastUpdatedTime" && key != "updatedDateTime") {
+                        changedList.add(key)
+                    }
+                }
+                changedFieldsStr = changedList.joinToString(", ")
+            }
+
+            val logData = hashMapOf(
+                "logId" to logId,
+                "timestamp" to FieldValue.serverTimestamp(),
+                "userId" to uid,
+                "userName" to finalUser,
+                "userEmail" to email,
+                "userRole" to finalRole,
+                "actionType" to actionType,
+                "module" to module,
+                "collectionName" to collectionName,
+                "documentId" to documentId,
+                "recordTitle" to recordTitle,
+                "oldData" to oldJson,
+                "newData" to newJson,
+                "changedFields" to changedFieldsStr,
+                "status" to status,
+                "deviceModel" to android.os.Build.MODEL,
+                "androidVersion" to android.os.Build.VERSION.RELEASE,
+                "appVersion" to "1.0.0",
+                "sessionId" to (com.example.ui.RanisaViewModel.currentSessionId ?: "S_UNKNOWN")
+            )
+
+            if (batch != null) {
+                batch.set(auditLogRef, logData)
+            } else {
+                auditLogRef.set(logData).await()
+            }
+            Log.d(TAG, "Enterprise audit log created successfully: $logId")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error writing enterprise audit log", e)
+        }
+    }
+
+    suspend fun getEnterpriseAuditLogs(
+        currentFirmId: String,
+        isGlobalAdminMode: Boolean,
+        limit: Long = 200
+    ): Pair<List<com.google.firebase.firestore.DocumentSnapshot>, Boolean> {
+        val db = FirebaseFirestore.getInstance()
+        val path = if (isGlobalAdminMode) "collectionGroup('logs')" else "firms/$currentFirmId/logs"
+        android.util.Log.d("FirebaseService", "[DEBUG] Firestore path: $path")
+        
+        try {
+            val query: com.google.firebase.firestore.Query = if (isGlobalAdminMode) {
+                db.collectionGroup("logs")
+            } else {
+                db.collection("firms").document(currentFirmId).collection("logs")
+            }
+            
+            val finalQuery = query.limit(limit)
+            android.util.Log.d("FirebaseService", "[DEBUG] Query executed: $finalQuery")
+            
+            val snapshot = finalQuery.get().await()
+            val documents = snapshot.documents
+            android.util.Log.d("FirebaseService", "[DEBUG] Number of documents received: ${documents.size}")
+            
+            // Client-side sorting by date/time (or timestamp if available) descending
+            val sortedDocuments = documents.sortedWith { doc1, doc2 ->
+                fun getSafeTime(doc: com.google.firebase.firestore.DocumentSnapshot): Long {
+                    try {
+                        val ts = doc.getTimestamp("timestamp") ?: doc.getTimestamp("time")
+                        if (ts != null) return ts.seconds
+                    } catch (e: Exception) {}
+                    
+                    try {
+                        val dateStr = doc.getString("date") ?: ""
+                        val timeStr = doc.getString("time") ?: doc.getString("timeStr") ?: ""
+                        if (dateStr.isNotBlank()) {
+                            val fullStr = if (timeStr.isNotBlank()) "$dateStr $timeStr" else dateStr
+                            val format = if (timeStr.isNotBlank()) {
+                                if (timeStr.contains(":")) "yyyy-MM-dd HH:mm:ss" else "yyyy-MM-dd"
+                            } else "yyyy-MM-dd"
+                            val parsedDate = java.text.SimpleDateFormat(format, java.util.Locale.getDefault()).parse(fullStr)
+                            if (parsedDate != null) return parsedDate.time / 1000
+                        }
+                    } catch (e: Exception) {}
+                    
+                    return 0L
+                }
+                
+                val t1 = getSafeTime(doc1)
+                val t2 = getSafeTime(doc2)
+                t2.compareTo(t1) // descending
+            }
+            
+            return Pair(sortedDocuments, false)
+        } catch (e: Exception) {
+            android.util.Log.e("FirebaseService", "[DEBUG] Firebase exception in getEnterpriseAuditLogs: ${e.message}", e)
+            throw e
+        }
     }
 
     suspend fun logActionToFirebase(
@@ -444,9 +702,29 @@ object FirebaseService {
                 "status" to "Active"
             )
 
-            db.collection("firms").document(firmPath)
+            val batch = db.batch()
+            val contractRef = db.collection("firms").document(firmPath)
                 .collection("contracts").document(billKey)
-                .set(billData).await()
+            batch.set(contractRef, billData)
+
+            try {
+                logEnterpriseAudit(
+                    context = context,
+                    actionType = "CREATE",
+                    module = "Bills",
+                    collectionName = "contract_bills",
+                    documentId = billKey,
+                    recordTitle = "Bill: ${bill.billNumber}",
+                    newDataMap = billData,
+                    userOverride = user,
+                    roleOverride = role,
+                    batch = batch
+                )
+            } catch (le: Exception) {
+                Log.e(TAG, "Failed to build enterprise audit log inside saveBillToFirebase", le)
+            }
+
+            batch.commit().await()
 
             // Automatically check/insert settings autocomplete fields under firm path
             val settingsColl = db.collection("firms").document(firmPath).collection("settings")
@@ -566,9 +844,30 @@ object FirebaseService {
                 "status" to "Active"
             )
 
-            db.collection("firms").document(firmPath)
+            val batch = db.batch()
+            val contractRef = db.collection("firms").document(firmPath)
                 .collection("contracts").document(billKey)
-                .set(billData).await()
+            batch.set(contractRef, billData)
+
+            try {
+                logEnterpriseAudit(
+                    context = context,
+                    actionType = "UPDATE",
+                    module = "Bills",
+                    collectionName = "contract_bills",
+                    documentId = billKey,
+                    recordTitle = "Bill: ${newBill.billNumber}",
+                    oldDataMap = contractBillToMap(oldBill),
+                    newDataMap = billData,
+                    userOverride = user,
+                    roleOverride = role,
+                    batch = batch
+                )
+            } catch (le: Exception) {
+                Log.e(TAG, "Failed to build enterprise audit log inside updateBillInFirebase", le)
+            }
+
+            batch.commit().await()
 
             // Automatically check/insert settings autocomplete fields under firm path
             val settingsColl = db.collection("firms").document(firmPath).collection("settings")
@@ -621,9 +920,29 @@ object FirebaseService {
             val firmPath = getSanitizedFirmId(bill.firmName)
             val billKey = getBillNodeKey(bill.billNumber)
 
-            db.collection("firms").document(firmPath)
+            val batch = db.batch()
+            val contractRef = db.collection("firms").document(firmPath)
                 .collection("contracts").document(billKey)
-                .delete().await()
+            batch.delete(contractRef)
+
+            try {
+                logEnterpriseAudit(
+                    context = context,
+                    actionType = "DELETE",
+                    module = "Bills",
+                    collectionName = "contract_bills",
+                    documentId = billKey,
+                    recordTitle = "Bill: ${bill.billNumber}",
+                    oldDataMap = contractBillToMap(bill),
+                    userOverride = user,
+                    roleOverride = role,
+                    batch = batch
+                )
+            } catch (le: Exception) {
+                Log.e(TAG, "Failed to build enterprise audit log inside deleteBillFromFirebase", le)
+            }
+
+            batch.commit().await()
 
             logActionToFirebase(
                 context = context,
@@ -694,7 +1013,28 @@ object FirebaseService {
                 "balanceAmount" to payment.pendingAmount
             )
 
-            paymentsColl.document(paymentId).set(paymentData).await()
+            val batch = db.batch()
+            val paymentRef = paymentsColl.document(paymentId)
+            batch.set(paymentRef, paymentData)
+
+            try {
+                logEnterpriseAudit(
+                    context = context,
+                    actionType = "CREATE_PAYMENT",
+                    module = "Payments",
+                    collectionName = "payments",
+                    documentId = paymentId,
+                    recordTitle = "Payment: ${payment.paymentAmount} for Bill: ${payment.billNo}",
+                    newDataMap = paymentData,
+                    userOverride = user,
+                    roleOverride = role,
+                    batch = batch
+                )
+            } catch (le: Exception) {
+                Log.e(TAG, "Failed to build enterprise audit log inside savePaymentToFirebase", le)
+            }
+
+            batch.commit().await()
             Log.d("FirebaseService", "Payment Saved to Firestore: $paymentId")
 
             // Also ensure buyer is in settings
@@ -864,9 +1204,27 @@ object FirebaseService {
             val firmPath = getSanitizedFirmId(payment.firm)
             val paymentKey = payment.paymentId.ifBlank { String.format("PAYMENT_%06d", payment.id) }
 
-            db.collection("firms").document(firmPath)
+            val batch = db.batch()
+            val paymentRef = db.collection("firms").document(firmPath)
                 .collection("payments").document(paymentKey)
-                .delete().await()
+            batch.delete(paymentRef)
+
+            try {
+                logEnterpriseAudit(
+                    context = context,
+                    actionType = "DELETE_PAYMENT",
+                    module = "Payments",
+                    collectionName = "payments",
+                    documentId = paymentKey,
+                    recordTitle = "Payment: ${payment.paymentAmount} for Bill: ${payment.billNo}",
+                    oldDataMap = paymentToMap(payment),
+                    batch = batch
+                )
+            } catch (le: Exception) {
+                Log.e(TAG, "Failed to build enterprise audit log inside deletePaymentFromFirebase", le)
+            }
+
+            batch.commit().await()
 
             Log.d("FirebaseService", "Payment Deleted: $paymentKey")
             return true
@@ -916,7 +1274,27 @@ object FirebaseService {
                 "createdTime" to FieldValue.serverTimestamp()
             )
 
-            newDocRef.set(sellerData).await()
+            val batch = db.batch()
+            batch.set(newDocRef, sellerData)
+
+            try {
+                logEnterpriseAudit(
+                    context = context,
+                    actionType = "CREATE",
+                    module = "Sellers",
+                    collectionName = "sellers",
+                    documentId = sellerId,
+                    recordTitle = "Seller: $sellerName",
+                    newDataMap = sellerData,
+                    userOverride = user,
+                    roleOverride = "User",
+                    batch = batch
+                )
+            } catch (le: Exception) {
+                Log.e(TAG, "Failed to build enterprise audit log inside saveSellerToFirebase", le)
+            }
+
+            batch.commit().await()
 
             val logDetails = if (millName.isNotBlank()) millName else sellerName
             logActionToFirebase(
@@ -974,7 +1352,27 @@ object FirebaseService {
                 "updatedTime" to FieldValue.serverTimestamp()
             )
 
-            newDocRef.set(brokerData).await()
+            val batch = db.batch()
+            batch.set(newDocRef, brokerData)
+
+            try {
+                logEnterpriseAudit(
+                    context = context,
+                    actionType = "CREATE",
+                    module = "Brokers",
+                    collectionName = "brokers",
+                    documentId = brokerId,
+                    recordTitle = "Broker: $brokerName",
+                    newDataMap = brokerData,
+                    userOverride = user,
+                    roleOverride = "User",
+                    batch = batch
+                )
+            } catch (le: Exception) {
+                Log.e(TAG, "Failed to build enterprise audit log inside saveBrokerToFirebase", le)
+            }
+
+            batch.commit().await()
 
             logActionToFirebase(
                 context = context,
@@ -1017,7 +1415,31 @@ object FirebaseService {
                 "updatedTime" to FieldValue.serverTimestamp()
             )
 
-            brokerDoc.update(updates).await()
+            val oldDoc = brokerDoc.get().await()
+            val oldDataMap = oldDoc.data
+
+            val batch = db.batch()
+            batch.update(brokerDoc, updates)
+
+            try {
+                logEnterpriseAudit(
+                    context = context,
+                    actionType = "UPDATE",
+                    module = "Brokers",
+                    collectionName = "brokers",
+                    documentId = brokerId,
+                    recordTitle = "Broker: $brokerName",
+                    oldDataMap = oldDataMap,
+                    newDataMap = updates,
+                    userOverride = user,
+                    roleOverride = "User",
+                    batch = batch
+                )
+            } catch (le: Exception) {
+                Log.e(TAG, "Failed to build enterprise audit log inside updateBrokerInFirebase", le)
+            }
+
+            batch.commit().await()
 
             logActionToFirebase(
                 context = context,
@@ -1050,7 +1472,30 @@ object FirebaseService {
             val brokerDoc = db.collection("firms").document(firmPath)
                 .collection("brokers").document(brokerId)
 
-            brokerDoc.delete().await()
+            val oldDoc = brokerDoc.get().await()
+            val oldDataMap = oldDoc.data
+
+            val batch = db.batch()
+            batch.delete(brokerDoc)
+
+            try {
+                logEnterpriseAudit(
+                    context = context,
+                    actionType = "DELETE",
+                    module = "Brokers",
+                    collectionName = "brokers",
+                    documentId = brokerId,
+                    recordTitle = "Broker: $brokerName",
+                    oldDataMap = oldDataMap,
+                    userOverride = user,
+                    roleOverride = "User",
+                    batch = batch
+                )
+            } catch (le: Exception) {
+                Log.e(TAG, "Failed to build enterprise audit log inside deleteBrokerFromFirebase", le)
+            }
+
+            batch.commit().await()
 
             logActionToFirebase(
                 context = context,
@@ -1100,7 +1545,31 @@ object FirebaseService {
                 "updatedTime" to FieldValue.serverTimestamp()
             )
 
-            sellerDoc.set(sellerData, SetOptions.merge()).await()
+            val oldDoc = sellerDoc.get().await()
+            val oldDataMap = oldDoc.data
+
+            val batch = db.batch()
+            batch.set(sellerDoc, sellerData, SetOptions.merge())
+
+            try {
+                logEnterpriseAudit(
+                    context = context,
+                    actionType = "UPDATE",
+                    module = "Sellers",
+                    collectionName = "sellers",
+                    documentId = sellerId,
+                    recordTitle = "Seller: $sellerName",
+                    oldDataMap = oldDataMap,
+                    newDataMap = sellerData,
+                    userOverride = user,
+                    roleOverride = "User",
+                    batch = batch
+                )
+            } catch (le: Exception) {
+                Log.e(TAG, "Failed to build enterprise audit log inside updateSellerInFirebase", le)
+            }
+
+            batch.commit().await()
 
             logActionToFirebase(
                 context = context,
@@ -1133,7 +1602,30 @@ object FirebaseService {
             val sellerDoc = db.collection("firms").document(firmPath)
                 .collection("sellers").document(sellerId)
 
-            sellerDoc.delete().await()
+            val oldDoc = sellerDoc.get().await()
+            val oldDataMap = oldDoc.data
+
+            val batch = db.batch()
+            batch.delete(sellerDoc)
+
+            try {
+                logEnterpriseAudit(
+                    context = context,
+                    actionType = "DELETE",
+                    module = "Sellers",
+                    collectionName = "sellers",
+                    documentId = sellerId,
+                    recordTitle = "Seller: $sellerName",
+                    oldDataMap = oldDataMap,
+                    userOverride = user,
+                    roleOverride = "User",
+                    batch = batch
+                )
+            } catch (le: Exception) {
+                Log.e(TAG, "Failed to build enterprise audit log inside deleteSellerFromFirebase", le)
+            }
+
+            batch.commit().await()
 
             logActionToFirebase(
                 context = context,
@@ -1183,7 +1675,31 @@ object FirebaseService {
                 "updatedTime" to FieldValue.serverTimestamp()
             )
 
-            buyerDoc.set(buyerData, SetOptions.merge()).await()
+            val oldDoc = buyerDoc.get().await()
+            val oldDataMap = oldDoc.data
+
+            val batch = db.batch()
+            batch.set(buyerDoc, buyerData, SetOptions.merge())
+
+            try {
+                logEnterpriseAudit(
+                    context = context,
+                    actionType = "UPDATE",
+                    module = "Buyers",
+                    collectionName = "buyers",
+                    documentId = buyerId,
+                    recordTitle = "Buyer: $buyerName",
+                    oldDataMap = oldDataMap,
+                    newDataMap = buyerData,
+                    userOverride = user,
+                    roleOverride = "User",
+                    batch = batch
+                )
+            } catch (le: Exception) {
+                Log.e(TAG, "Failed to build enterprise audit log inside updateBuyerInFirebase", le)
+            }
+
+            batch.commit().await()
 
             logActionToFirebase(
                 context = context,
@@ -1216,7 +1732,30 @@ object FirebaseService {
             val buyerDoc = db.collection("firms").document(firmPath)
                 .collection("buyers").document(buyerId)
 
-            buyerDoc.delete().await()
+            val oldDoc = buyerDoc.get().await()
+            val oldDataMap = oldDoc.data
+
+            val batch = db.batch()
+            batch.delete(buyerDoc)
+
+            try {
+                logEnterpriseAudit(
+                    context = context,
+                    actionType = "DELETE",
+                    module = "Buyers",
+                    collectionName = "buyers",
+                    documentId = buyerId,
+                    recordTitle = "Buyer: $buyerName",
+                    oldDataMap = oldDataMap,
+                    userOverride = user,
+                    roleOverride = "User",
+                    batch = batch
+                )
+            } catch (le: Exception) {
+                Log.e(TAG, "Failed to build enterprise audit log inside deleteBuyerFromFirebase", le)
+            }
+
+            batch.commit().await()
 
             logActionToFirebase(
                 context = context,
@@ -1275,7 +1814,27 @@ object FirebaseService {
                 "createdTime" to FieldValue.serverTimestamp()
             )
 
-            newDocRef.set(buyerData).await()
+            val batch = db.batch()
+            batch.set(newDocRef, buyerData)
+
+            try {
+                logEnterpriseAudit(
+                    context = context,
+                    actionType = "CREATE",
+                    module = "Buyers",
+                    collectionName = "buyers",
+                    documentId = buyerId,
+                    recordTitle = "Buyer: $buyerName",
+                    newDataMap = buyerData,
+                    userOverride = user,
+                    roleOverride = "User",
+                    batch = batch
+                )
+            } catch (le: Exception) {
+                Log.e(TAG, "Failed to build enterprise audit log inside saveBuyerToFirebase", le)
+            }
+
+            batch.commit().await()
 
             val logDetails = if (firmName.isNotBlank()) firmName else buyerName
             logActionToFirebase(
