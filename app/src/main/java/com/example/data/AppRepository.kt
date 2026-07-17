@@ -23,7 +23,7 @@ class AppRepository(private val appDao: AppDao) {
     val brokers: Flow<List<Broker>> = appDao.getAllBrokersFlow()
     val contractBills: Flow<List<ContractBill>> = appDao.getAllContractBills()
     val payments: Flow<List<Payment>> = appDao.getAllPayments()
-    val logs: Flow<List<AuditLog>> = appDao.getAllLogs()
+    val logs: Flow<List<AuditLog>> = kotlinx.coroutines.flow.flowOf(emptyList())
 
     init {
         CoroutineScope(Dispatchers.IO).launch {
@@ -102,31 +102,31 @@ class AppRepository(private val appDao: AppDao) {
         billNo: String = "",
         partyName: String = ""
     ) {
-        val sdfDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-        val sdfTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-        val currentDate = sdfDate.format(Date())
-        val currentTime = sdfTime.format(Date())
-        val deviceModel = android.os.Build.MODEL
         val activeFrm = _activeFirm.value?.name ?: "Lalit Rice Broker"
-
-        val log = AuditLog(
-            userName = getActiveUsername(),
-            userRole = getActiveUserRole(),
-            date = currentDate,
-            time = currentTime,
-            screen = screen,
-            action = action,
-            firmName = activeFrm,
-            oldValue = oldValue,
-            newValue = newValue,
-            device = deviceModel,
-            ipSessionId = "Session_" + java.util.UUID.randomUUID().toString().take(8),
-            billNo = billNo,
-            partyName = partyName
-        )
-        appDao.insertLog(log)
         try {
-            FirebaseService.logAuditLogToFirebase(log)
+            FirebaseService.logEnterpriseAudit(
+                context = com.google.firebase.firestore.FirebaseFirestore.getInstance().app.applicationContext,
+                actionType = action,
+                module = when {
+                    screen.contains("Bill", ignoreCase = true) || screen.contains("Contract", ignoreCase = true) -> "Bills"
+                    screen.contains("Payment", ignoreCase = true) -> "Payments"
+                    screen.contains("Seller", ignoreCase = true) -> "Sellers"
+                    screen.contains("Buyer", ignoreCase = true) -> "Buyers"
+                    screen.contains("Broker", ignoreCase = true) -> "Brokers"
+                    else -> "System"
+                },
+                collectionName = "logs",
+                documentId = billNo,
+                recordTitle = partyName.ifBlank { "Action in $screen" },
+                userOverride = getActiveUsername(),
+                roleOverride = getActiveUserRole(),
+                descriptionOverride = "$action on $screen. Old: $oldValue, New: $newValue",
+                billNoOverride = billNo,
+                partyNameOverride = partyName,
+                firmNameOverride = activeFrm,
+                oldValueOverride = oldValue,
+                newValueOverride = newValue
+            )
         } catch (e: Exception) {
             android.util.Log.e("AppRepository", "Firebase logging failed", e)
         }

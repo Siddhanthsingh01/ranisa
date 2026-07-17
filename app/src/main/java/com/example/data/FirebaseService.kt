@@ -12,6 +12,9 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -253,27 +256,24 @@ object FirebaseService {
     }
 
     /**
-     * Store login audit records in the Firestore "audit_logs" collection.
+     * Store login audit records in the Firestore "audit_logs" collection (unified to firms/currentFirm/logs).
      */
     suspend fun saveLoginAuditLog(context: Context, username: String) {
         if (!isFirebaseInitialized(context)) return
 
         try {
-            val db = FirebaseFirestore.getInstance()
-            val sdfDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-            val sdfTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-            val now = Date()
-
-            val auditData = hashMapOf(
-                "userName" to username,
-                "action" to "Login",
-                "date" to sdfDate.format(now),
-                "time" to sdfTime.format(now),
-                "device" to Build.MODEL
+            logEnterpriseAudit(
+                context = context,
+                actionType = "LOGIN",
+                module = "Authentication",
+                collectionName = "users",
+                documentId = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "",
+                recordTitle = username,
+                userOverride = username,
+                roleOverride = "Admin",
+                descriptionOverride = "User $username logged in successfully."
             )
-
-            db.collection("audit_logs").add(auditData).await()
-            Log.d(TAG, "Audit log saved successfully to Firestore for user: $username")
+            Log.d(TAG, "Audit log saved successfully via unified pipeline for user: $username")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to write audit log to Firestore", e)
         }
@@ -392,112 +392,323 @@ object FirebaseService {
         return "BILL_$padded"
     }
 
+    fun safeMapToJson(map: Map<String, Any?>?): String {
+        if (map == null) return ""
+        val safeMap = mutableMapOf<String, Any?>()
+        for ((key, value) in map) {
+            safeMap[key] = when (value) {
+                null -> null
+                is String, is Number, is Boolean -> value
+                is com.google.firebase.firestore.FieldValue -> "[FieldValue.serverTimestamp]"
+                is com.google.firebase.Timestamp -> {
+                    java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(value.toDate())
+                }
+                is java.util.Date -> {
+                    java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(value)
+                }
+                is Map<*, *> -> {
+                    try {
+                        org.json.JSONObject(value as Map<*, *>).toString()
+                    } catch (e: Exception) {
+                        value.toString()
+                    }
+                }
+                is List<*> -> {
+                    try {
+                        org.json.JSONArray(value).toString()
+                    } catch (e: Exception) {
+                        value.toString()
+                    }
+                }
+                else -> value.toString()
+            }
+        }
+        return try {
+            org.json.JSONObject(safeMap).toString()
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
     suspend fun logEnterpriseAudit(
         context: Context,
         actionType: String, // CREATE, UPDATE, DELETE, LOGIN, LOGOUT, etc.
         module: String, // Bills, Payments, Sellers, Buyers, Brokers, Auth, Settings, etc.
-        collectionName: String, // contract_bills, payments, sellers, buyers, brokers, users
-        documentId: String,
-        recordTitle: String,
+        collectionName: String = "", // Map to screen or custom usage
+        documentId: String = "",
+        recordTitle: String = "",
         oldDataMap: Map<String, Any>? = null,
         newDataMap: Map<String, Any>? = null,
         status: String = "Success",
         userOverride: String? = null,
         roleOverride: String? = null,
         customChangedFields: String? = null,
-        batch: com.google.firebase.firestore.WriteBatch? = null
+        batch: com.google.firebase.firestore.WriteBatch? = null,
+        firmIdOverride: String? = null,
+        firmNameOverride: String? = null,
+        billNoOverride: String? = null,
+        partyNameOverride: String? = null,
+        oldValueOverride: String? = null,
+        newValueOverride: String? = null,
+        descriptionOverride: String? = null
     ) {
         try {
             val db = FirebaseFirestore.getInstance()
-            val auditLogRef = db.collection("audit_logs").document()
-            val logId = auditLogRef.id
-
+            
+            // Resolve User details
             val currentUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
-            val email = currentUser?.email ?: ""
-            val uid = currentUser?.uid ?: ""
-
-            // Determine user/role from state or overrides
-            val finalUser = userOverride ?: com.example.ui.RanisaViewModel.currentUsernameVal ?: "Admin"
-            val finalRole = roleOverride ?: com.example.ui.RanisaViewModel.currentUserRoleVal ?: "Admin"
-
-            // Compute changed fields if we have old and new data
-            var changedFieldsStr = customChangedFields ?: ""
-            val oldJson = if (oldDataMap != null) {
-                org.json.JSONObject(oldDataMap).toString()
-            } else ""
-
-            val newJson = if (newDataMap != null) {
-                org.json.JSONObject(newDataMap).toString()
-            } else ""
-
-            if (oldDataMap != null && newDataMap != null && customChangedFields == null) {
-                val changedList = mutableListOf<String>()
-                for ((key, value) in newDataMap) {
-                    val oldValue = oldDataMap[key]
-                    if (oldValue != value && key != "updatedTime" && key != "lastUpdatedTime" && key != "updatedDateTime") {
-                        changedList.add(key)
+            val finalUserId = currentUser?.uid ?: ""
+            var finalUserEmail = currentUser?.email ?: ""
+            var finalUserName = userOverride ?: ""
+            val finalUserRole = roleOverride ?: com.example.ui.RanisaViewModel.currentUserRoleVal ?: "Admin"
+            
+            if (currentUser != null) {
+                try {
+                    val userDoc = db.collection("users").document(currentUser.uid).get().await()
+                    if (userDoc.exists()) {
+                        val fn = userDoc.getString("fullName")
+                        val em = userDoc.getString("email")
+                        if (!fn.isNullOrBlank()) {
+                            finalUserName = fn
+                        }
+                        if (!em.isNullOrBlank()) {
+                            finalUserEmail = em
+                        }
                     }
+                } catch (e: Exception) {
+                    android.util.Log.w("FirebaseService", "Failed to load user profile in audit log", e)
                 }
-                changedFieldsStr = changedList.joinToString(", ")
             }
 
+            if (finalUserName.isBlank()) {
+                val dn = currentUser?.displayName
+                finalUserName = if (!dn.isNullOrBlank()) {
+                    dn
+                } else {
+                    val fallbackName = com.example.ui.RanisaViewModel.currentUsernameVal
+                    if (!fallbackName.isNullOrBlank() && fallbackName != "Admin" && fallbackName.contains("@")) {
+                        // It is an email, let's use the part before @ as fallback
+                        fallbackName.substringBefore("@")
+                    } else if (!fallbackName.isNullOrBlank()) {
+                        fallbackName
+                    } else {
+                        currentUser?.email?.substringBefore("@") ?: "Admin"
+                    }
+                }
+            }
+            if (finalUserEmail.isBlank()) {
+                val fallbackName = com.example.ui.RanisaViewModel.currentUsernameVal
+                if (fallbackName.contains("@")) {
+                    finalUserEmail = fallbackName
+                }
+            }
+
+            // Resolve Firm details
+            val finalFirmName = firmNameOverride ?: "Lalit Rice Broker"
+            val finalFirmId = firmIdOverride ?: getSanitizedFirmId(finalFirmName)
+            
+            // Map actions and modules to compliant enterprise lists
+            val finalAction = when (actionType.uppercase()) {
+                "LOGIN", "LOGOUT", "CREATE", "UPDATE", "DELETE", "PRINT", "EXPORT", "IMPORT", "PAYMENT", "SYNC", "ERROR" -> actionType.uppercase()
+                "ADD_PAYMENT", "EDIT_PAYMENT", "DELETE_PAYMENT" -> "PAYMENT"
+                "ADD_BILL", "EDIT_BILL", "DELETE_BILL" -> "CREATE"
+                else -> {
+                    if (actionType.contains("CREATE", ignoreCase = true) || actionType.contains("ADD", ignoreCase = true)) "CREATE"
+                    else if (actionType.contains("UPDATE", ignoreCase = true) || actionType.contains("EDIT", ignoreCase = true)) "UPDATE"
+                    else if (actionType.contains("DELETE", ignoreCase = true) || actionType.contains("REMOVE", ignoreCase = true)) "DELETE"
+                    else if (actionType.contains("LOGIN", ignoreCase = true)) "LOGIN"
+                    else if (actionType.contains("LOGOUT", ignoreCase = true)) "LOGOUT"
+                    else if (actionType.contains("PRINT", ignoreCase = true)) "PRINT"
+                    else if (actionType.contains("EXPORT", ignoreCase = true)) "EXPORT"
+                    else if (actionType.contains("IMPORT", ignoreCase = true)) "IMPORT"
+                    else if (actionType.contains("SYNC", ignoreCase = true)) "SYNC"
+                    else if (actionType.contains("ERROR", ignoreCase = true)) "ERROR"
+                    else "UPDATE"
+                }
+            }
+            
+            val finalModule = when (module) {
+                "Bills", "Payments", "Buyers", "Sellers", "Brokers", "Contracts", "Users", "Authentication", "Settings", "System" -> module
+                "Auth" -> "Authentication"
+                "contract_bills" -> "Bills"
+                "payments" -> "Payments"
+                "sellers" -> "Sellers"
+                "buyers" -> "Buyers"
+                "brokers" -> "Brokers"
+                "users" -> "Users"
+                else -> {
+                    if (module.contains("Bill", ignoreCase = true)) "Bills"
+                    else if (module.contains("Payment", ignoreCase = true)) "Payments"
+                    else if (module.contains("Seller", ignoreCase = true)) "Sellers"
+                    else if (module.contains("Buyer", ignoreCase = true)) "Buyers"
+                    else if (module.contains("Broker", ignoreCase = true)) "Brokers"
+                    else if (module.contains("Contract", ignoreCase = true)) "Contracts"
+                    else if (module.contains("User", ignoreCase = true)) "Users"
+                    else if (module.contains("Auth", ignoreCase = true)) "Authentication"
+                    else if (module.contains("Setting", ignoreCase = true)) "Settings"
+                    else "System"
+                }
+            }
+            
+            // Map fields
+            val finalScreen = when {
+                module.isNotBlank() -> module
+                collectionName.isNotBlank() -> collectionName
+                else -> "System"
+            }
+            
+            // Bill number extraction
+            val resolvedBillNo = billNoOverride ?: recordTitle.toIntOrNull()?.toString() ?: ""
+            val resolvedPartyName = partyNameOverride ?: when {
+                finalModule == "Sellers" || finalModule == "Buyers" || finalModule == "Brokers" -> recordTitle
+                else -> ""
+            }
+            
+            // Old / New values
+            val resolvedOldValue = oldValueOverride ?: safeMapToJson(oldDataMap)
+            val resolvedNewValue = newValueOverride ?: safeMapToJson(newDataMap)
+            
+            // Compute changed fields
+            val changedFieldsMap = mutableMapOf<String, Map<String, Any?>>()
+            if (oldDataMap != null && newDataMap != null) {
+                for ((key, newVal) in newDataMap) {
+                    val oldVal = oldDataMap[key]
+                    if (oldVal != newVal) {
+                        val oldStr = when (oldVal) {
+                            null -> ""
+                            is com.google.firebase.firestore.FieldValue -> "serverTimestamp"
+                            is com.google.firebase.Timestamp -> java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(oldVal.toDate())
+                            is java.util.Date -> java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(oldVal)
+                            else -> oldVal.toString()
+                        }
+                        val newStr = when (newVal) {
+                            null -> ""
+                            is com.google.firebase.firestore.FieldValue -> "serverTimestamp"
+                            is com.google.firebase.Timestamp -> java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(newVal.toDate())
+                            is java.util.Date -> java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(newVal)
+                            else -> newVal.toString()
+                        }
+                        if (oldStr != newStr) {
+                            changedFieldsMap[key] = mapOf(
+                                "before" to oldStr,
+                                "after" to newStr
+                            )
+                        }
+                    }
+                }
+            }
+            val resolvedChangedFields = if (changedFieldsMap.isNotEmpty()) {
+                org.json.JSONObject(changedFieldsMap as Map<*, *>).toString()
+            } else {
+                customChangedFields ?: ""
+            }
+
+            val resolvedDescription = descriptionOverride ?: "Action $finalAction performed on $finalModule ($recordTitle)"
+            
+            // Reference to standard single collection
+            val logsColl = db.collection("firms").document(finalFirmId).collection("logs")
+            val logDocRef = logsColl.document()
+            val finalLogId = logDocRef.id
+            
+            val sdfDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            val sdfTime = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
+            val currentDate = sdfDate.format(java.util.Date())
+            val currentTime = sdfTime.format(java.util.Date())
+            
             val logData = hashMapOf(
-                "logId" to logId,
+                "logId" to finalLogId,
                 "timestamp" to FieldValue.serverTimestamp(),
-                "userId" to uid,
-                "userName" to finalUser,
-                "userEmail" to email,
-                "userRole" to finalRole,
-                "actionType" to actionType,
-                "module" to module,
+                "date" to currentDate,
+                "time" to currentTime,
+                "action" to finalAction,
+                "actionType" to finalAction,
+                "module" to finalModule,
+                "screen" to finalScreen,
                 "collectionName" to collectionName,
-                "documentId" to documentId,
-                "recordTitle" to recordTitle,
-                "oldData" to oldJson,
-                "newData" to newJson,
-                "changedFields" to changedFieldsStr,
-                "status" to status,
+                "userId" to finalUserId,
+                "userName" to finalUserName,
+                "userEmail" to finalUserEmail,
+                "userRole" to finalUserRole,
+                "firmId" to finalFirmId,
+                "firmName" to finalFirmName,
+                "device" to android.os.Build.MODEL,
                 "deviceModel" to android.os.Build.MODEL,
                 "androidVersion" to android.os.Build.VERSION.RELEASE,
                 "appVersion" to "1.0.0",
-                "sessionId" to (com.example.ui.RanisaViewModel.currentSessionId ?: "S_UNKNOWN")
+                "sessionId" to (com.example.ui.RanisaViewModel.currentSessionId ?: "S_UNKNOWN"),
+                "ipSessionId" to (com.example.ui.RanisaViewModel.currentSessionId ?: "S_UNKNOWN"),
+                "billNo" to resolvedBillNo,
+                "partyName" to resolvedPartyName,
+                "documentId" to documentId,
+                "recordTitle" to recordTitle,
+                "oldValue" to resolvedOldValue,
+                "newValue" to resolvedNewValue,
+                "oldData" to resolvedOldValue,
+                "newData" to resolvedNewValue,
+                "changedFields" to resolvedChangedFields,
+                "description" to resolvedDescription,
+                "status" to status
             )
-
+            
             if (batch != null) {
-                batch.set(auditLogRef, logData)
+                batch.set(logDocRef, logData)
             } else {
-                auditLogRef.set(logData).await()
+                logDocRef.set(logData).await()
             }
-            Log.d(TAG, "Enterprise audit log created successfully: $logId")
+            android.util.Log.d("FirebaseService", "[DEBUG] Firestore path: firms/$finalFirmId/logs/$finalLogId")
+            android.util.Log.d("FirebaseService", "[DEBUG] Query: Single log write")
+            android.util.Log.d("FirebaseService", "[DEBUG] Document count: 1")
+            android.util.Log.d("FirebaseService", "[DEBUG] Snapshot updates: Log write completed successfully.")
         } catch (e: Exception) {
-            Log.e(TAG, "Error writing enterprise audit log", e)
+            android.util.Log.e("FirebaseService", "[DEBUG] Firebase exception in logEnterpriseAudit: ${e.message}", e)
         }
     }
 
     suspend fun getEnterpriseAuditLogs(
         currentFirmId: String,
         isGlobalAdminMode: Boolean,
-        limit: Long = 200
+        limit: Long = 300
     ): Pair<List<com.google.firebase.firestore.DocumentSnapshot>, Boolean> {
         val db = FirebaseFirestore.getInstance()
-        val path = if (isGlobalAdminMode) "collectionGroup('logs')" else "firms/$currentFirmId/logs"
-        android.util.Log.d("FirebaseService", "[DEBUG] Firestore path: $path")
         
         try {
-            val query: com.google.firebase.firestore.Query = if (isGlobalAdminMode) {
-                db.collectionGroup("logs")
+            val documents = if (isGlobalAdminMode) {
+                val firmIds = try {
+                    val snapshot = db.collection("firms").get().await()
+                    val ids = snapshot.documents.map { it.id }.distinct()
+                    if (ids.isEmpty()) listOf("F001", "F002") else ids
+                } catch (e: Exception) {
+                    android.util.Log.w("FirebaseService", "Firestore firms fetch failed, using fallback.", e)
+                    listOf("F001", "F002")
+                }
+                
+                kotlinx.coroutines.coroutineScope {
+                    val deferreds = firmIds.map { firmId ->
+                        this@coroutineScope.async(kotlinx.coroutines.Dispatchers.IO) {
+                            try {
+                                db.collection("firms").document(firmId).collection("logs")
+                                    .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                                    .limit(limit)
+                                    .get()
+                                    .await()
+                                    .documents
+                            } catch (e: Exception) {
+                                android.util.Log.w("FirebaseService", "Failed to fetch logs for firm $firmId", e)
+                                emptyList<com.google.firebase.firestore.DocumentSnapshot>()
+                            }
+                        }
+                    }
+                    deferreds.awaitAll().flatten()
+                }
             } else {
                 db.collection("firms").document(currentFirmId).collection("logs")
+                    .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                    .limit(limit)
+                    .get()
+                    .await()
+                    .documents
             }
             
-            val finalQuery = query.limit(limit)
-            android.util.Log.d("FirebaseService", "[DEBUG] Query executed: $finalQuery")
-            
-            val snapshot = finalQuery.get().await()
-            val documents = snapshot.documents
-            android.util.Log.d("FirebaseService", "[DEBUG] Number of documents received: ${documents.size}")
-            
-            // Client-side sorting by date/time (or timestamp if available) descending
             val sortedDocuments = documents.sortedWith { doc1, doc2 ->
                 fun getSafeTime(doc: com.google.firebase.firestore.DocumentSnapshot): Long {
                     try {
@@ -524,12 +735,167 @@ object FirebaseService {
                 val t1 = getSafeTime(doc1)
                 val t2 = getSafeTime(doc2)
                 t2.compareTo(t1) // descending
-            }
+            }.take(limit.toInt())
             
             return Pair(sortedDocuments, false)
         } catch (e: Exception) {
             android.util.Log.e("FirebaseService", "[DEBUG] Firebase exception in getEnterpriseAuditLogs: ${e.message}", e)
             throw e
+        }
+    }
+
+    fun getEnterpriseAuditLogsListener(
+        currentFirmId: String,
+        isGlobalAdminMode: Boolean,
+        limit: Long = 300,
+        onError: (Exception) -> Unit,
+        onUpdate: (List<com.google.firebase.firestore.DocumentSnapshot>) -> Unit
+    ): com.google.firebase.firestore.ListenerRegistration {
+        val db = FirebaseFirestore.getInstance()
+        
+        if (!isGlobalAdminMode) {
+            val query = db.collection("firms").document(currentFirmId).collection("logs")
+                .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .limit(limit)
+            return query.addSnapshotListener { snapshot, exception ->
+                if (exception != null) {
+                    android.util.Log.e("FirebaseService", "[DEBUG] Firebase exceptions / Indexes / Permissions: ${exception.message}", exception)
+                    onError(exception)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    onUpdate(snapshot.documents)
+                }
+            }
+        } else {
+            val lock = Any()
+            var isCancelled = false
+            val activeRegistrations = mutableListOf<com.google.firebase.firestore.ListenerRegistration>()
+            val firmDocsMap = mutableMapOf<String, List<com.google.firebase.firestore.DocumentSnapshot>>()
+            
+            val parentRegistration = object : com.google.firebase.firestore.ListenerRegistration {
+                override fun remove() {
+                    synchronized(lock) {
+                        isCancelled = true
+                        activeRegistrations.forEach { it.remove() }
+                        activeRegistrations.clear()
+                    }
+                }
+            }
+            
+            db.collection("firms").get().addOnCompleteListener { task ->
+                synchronized(lock) {
+                    if (isCancelled) return@addOnCompleteListener
+                    
+                    val firmIds = if (task.isSuccessful && task.result != null) {
+                        task.result.documents.map { it.id }.distinct()
+                    } else {
+                        android.util.Log.w("FirebaseService", "Firestore firms fetch failed, using fallback.", task.exception)
+                        listOf("F001", "F002")
+                    }
+                    
+                    if (firmIds.isEmpty()) {
+                        onUpdate(emptyList())
+                        return@addOnCompleteListener
+                    }
+                    
+                    for (firmId in firmIds) {
+                        val q = db.collection("firms").document(firmId).collection("logs")
+                            .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                            .limit(limit)
+                        
+                        val reg = q.addSnapshotListener { subSnapshot, subException ->
+                            if (subException != null) {
+                                onError(subException)
+                                return@addSnapshotListener
+                            }
+                            if (subSnapshot != null) {
+                                synchronized(lock) {
+                                    if (isCancelled) return@addSnapshotListener
+                                    firmDocsMap[firmId] = subSnapshot.documents
+                                    
+                                    val mergedList = firmDocsMap.values.flatten()
+                                    val sortedList = mergedList.sortedWith { d1, d2 ->
+                                        val t1 = d1.getTimestamp("timestamp")?.seconds ?: 0L
+                                        val t2 = d2.getTimestamp("timestamp")?.seconds ?: 0L
+                                        t2.compareTo(t1)
+                                    }
+                                    onUpdate(sortedList.take(limit.toInt()))
+                                }
+                            }
+                        }
+                        activeRegistrations.add(reg)
+                    }
+                }
+            }
+            
+            return parentRegistration
+        }
+    }
+
+    suspend fun getEnterpriseAuditLogsPaginated(
+        currentFirmId: String,
+        isGlobalAdminMode: Boolean,
+        limit: Long = 50,
+        startAfterDoc: com.google.firebase.firestore.DocumentSnapshot? = null
+    ): List<com.google.firebase.firestore.DocumentSnapshot> {
+        val db = FirebaseFirestore.getInstance()
+        
+        return try {
+            val documents = if (isGlobalAdminMode) {
+                val firmIds = try {
+                    val snapshot = db.collection("firms").get().await()
+                    val ids = snapshot.documents.map { it.id }.distinct()
+                    if (ids.isEmpty()) listOf("F001", "F002") else ids
+                } catch (e: Exception) {
+                    android.util.Log.w("FirebaseService", "Firestore firms fetch failed, using fallback.", e)
+                    listOf("F001", "F002")
+                }
+                
+                kotlinx.coroutines.coroutineScope {
+                    val deferreds = firmIds.map { firmId ->
+                        this@coroutineScope.async(kotlinx.coroutines.Dispatchers.IO) {
+                            try {
+                                var q = db.collection("firms").document(firmId).collection("logs")
+                                    .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                                if (startAfterDoc != null) {
+                                    q = q.startAfter(startAfterDoc)
+                                }
+                                q.limit(limit).get().await().documents
+                            } catch (e: Exception) {
+                                android.util.Log.w("FirebaseService", "Failed to paginate logs for firm $firmId", e)
+                                emptyList<com.google.firebase.firestore.DocumentSnapshot>()
+                            }
+                        }
+                    }
+                    deferreds.awaitAll().flatten()
+                }
+            } else {
+                var q = db.collection("firms").document(currentFirmId).collection("logs")
+                    .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                if (startAfterDoc != null) {
+                    q = q.startAfter(startAfterDoc)
+                }
+                q.limit(limit).get().await().documents
+            }
+            
+            val sortedDocuments = documents.sortedWith { doc1, doc2 ->
+                fun getSafeTime(doc: com.google.firebase.firestore.DocumentSnapshot): Long {
+                    try {
+                        val ts = doc.getTimestamp("timestamp") ?: doc.getTimestamp("time")
+                        if (ts != null) return ts.seconds
+                    } catch (e: Exception) {}
+                    return 0L
+                }
+                val t1 = getSafeTime(doc1)
+                val t2 = getSafeTime(doc2)
+                t2.compareTo(t1) // descending
+            }.take(limit.toInt())
+            
+            sortedDocuments
+        } catch (e: Exception) {
+            android.util.Log.e("FirebaseService", "[DEBUG] Pagination query failed: ${e.message}", e)
+            emptyList()
         }
     }
 
@@ -542,80 +908,72 @@ object FirebaseService {
         role: String,
         details: String
     ) {
-        try {
-            val db = FirebaseFirestore.getInstance()
-            val firmPath = if (firm.isNotBlank()) getSanitizedFirmId(firm) else "F001"
-            val logsColl = db.collection("firms").document(firmPath).collection("logs")
-
-            // Find the next LOG_xxxxx sequence number
-            val snapshot = logsColl.get().await()
-            var maxSeq = 0
-            for (doc in snapshot.documents) {
-                val key = doc.id
-                if (key.startsWith("LOG_")) {
-                    val numStr = key.substring(4)
-                    val num = numStr.toIntOrNull()
-                    if (num != null && num > maxSeq) {
-                        maxSeq = num
-                    }
-                }
+        val mappedAction = when (action.uppercase()) {
+            "ADD_PAYMENT", "EDIT_PAYMENT", "DELETE_PAYMENT", "PAYMENT" -> "PAYMENT"
+            "ADD_BILL", "EDIT_BILL", "DELETE_BILL" -> "CREATE"
+            else -> {
+                if (action.contains("CREATE", ignoreCase = true) || action.contains("ADD", ignoreCase = true)) "CREATE"
+                else if (action.contains("UPDATE", ignoreCase = true) || action.contains("EDIT", ignoreCase = true)) "UPDATE"
+                else if (action.contains("DELETE", ignoreCase = true) || action.contains("REMOVE", ignoreCase = true)) "DELETE"
+                else if (action.contains("LOGIN", ignoreCase = true)) "LOGIN"
+                else if (action.contains("LOGOUT", ignoreCase = true)) "LOGOUT"
+                else if (action.contains("PRINT", ignoreCase = true)) "PRINT"
+                else if (action.contains("EXPORT", ignoreCase = true)) "EXPORT"
+                else if (action.contains("IMPORT", ignoreCase = true)) "IMPORT"
+                else if (action.contains("SYNC", ignoreCase = true)) "SYNC"
+                else if (action.contains("ERROR", ignoreCase = true)) "ERROR"
+                else "UPDATE"
             }
-            val nextSeq = maxSeq + 1
-            val nextKey = String.format("LOG_%06d", nextSeq)
-
-            val logData = hashMapOf(
-                "action" to action,
-                "billNo" to (billNo.toIntOrNull() ?: billNo),
-                "firm" to firm,
-                "user" to user,
-                "role" to role,
-                "time" to FieldValue.serverTimestamp(),
-                "device" to "Android",
-                "details" to details,
-                // Add AuditLog compatibility fields
-                "userName" to user,
-                "userRole" to role,
-                "date" to SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()),
-                "timeStr" to SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()),
-                "screen" to "System Log",
-                "firmName" to firm,
-                "oldValue" to details,
-                "newValue" to ""
-            )
-
-            logsColl.document(nextKey).set(logData).await()
-            Log.d(TAG, "Log written to Firestore successfully: $nextKey")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to write log to Firestore", e)
         }
+
+        val mappedModule = when {
+            details.contains("Bill", ignoreCase = true) || action.contains("Bill", ignoreCase = true) -> "Bills"
+            details.contains("Payment", ignoreCase = true) || action.contains("Payment", ignoreCase = true) -> "Payments"
+            details.contains("Seller", ignoreCase = true) -> "Sellers"
+            details.contains("Buyer", ignoreCase = true) -> "Buyers"
+            details.contains("Broker", ignoreCase = true) -> "Brokers"
+            else -> "System"
+        }
+
+        logEnterpriseAudit(
+            context = context,
+            actionType = mappedAction,
+            module = mappedModule,
+            collectionName = "logs",
+            documentId = billNo,
+            recordTitle = "Bill: $billNo",
+            userOverride = user,
+            roleOverride = role,
+            descriptionOverride = details,
+            billNoOverride = billNo,
+            firmNameOverride = firm
+        )
     }
 
     suspend fun logAuditLogToFirebase(log: AuditLog) {
-        try {
-            val db = FirebaseFirestore.getInstance()
-            val firmPath = if (log.firmName.isNotBlank()) getSanitizedFirmId(log.firmName) else "F001"
-            val logsColl = db.collection("firms").document(firmPath).collection("logs")
-
-            val logData = hashMapOf(
-                "userName" to log.userName,
-                "userRole" to log.userRole,
-                "date" to log.date,
-                "time" to log.time,
-                "screen" to log.screen,
-                "action" to log.action,
-                "firmName" to log.firmName,
-                "oldValue" to log.oldValue,
-                "newValue" to log.newValue,
-                "device" to log.device,
-                "ipSessionId" to log.ipSessionId,
-                "billNo" to log.billNo,
-                "partyName" to log.partyName
-            )
-            logsColl.add(logData).await()
-            Log.d(TAG, "Audit log written to Firestore successfully under firm: $firmPath")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to write audit log to Firestore", e)
-        }
+        logEnterpriseAudit(
+            context = FirebaseFirestore.getInstance().app.applicationContext,
+            actionType = log.action,
+            module = when {
+                log.screen.contains("Bill", ignoreCase = true) -> "Bills"
+                log.screen.contains("Payment", ignoreCase = true) -> "Payments"
+                log.screen.contains("Seller", ignoreCase = true) -> "Sellers"
+                log.screen.contains("Buyer", ignoreCase = true) -> "Buyers"
+                log.screen.contains("Broker", ignoreCase = true) -> "Brokers"
+                else -> "System"
+            },
+            collectionName = "logs",
+            documentId = log.billNo,
+            recordTitle = log.partyName,
+            userOverride = log.userName,
+            roleOverride = log.userRole,
+            descriptionOverride = log.oldValue + " -> " + log.newValue,
+            billNoOverride = log.billNo,
+            partyNameOverride = log.partyName,
+            firmNameOverride = log.firmName,
+            oldValueOverride = log.oldValue,
+            newValueOverride = log.newValue
+        )
     }
 
     suspend fun saveBillToFirebase(
@@ -2064,62 +2422,8 @@ object FirebaseService {
                     }
                 }
 
-            // 6. Listen to Audit Logs
-            auditLogsListener = db.collection("firms").document(firmPath).collection("logs")
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        Log.e(TAG, "Error syncing logs for ${firm.name}", error)
-                        return@addSnapshotListener
-                    }
-                    if (snapshot != null) {
-                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                            try {
-                                val list = mutableListOf<AuditLog>()
-                                for (doc in snapshot.documents) {
-                                    val userName = doc.getString("userName") ?: doc.getString("user") ?: ""
-                                    val userRole = doc.getString("userRole") ?: doc.getString("role") ?: ""
-                                    val date = doc.getString("date") ?: ""
-                                    val time = doc.getString("time") ?: doc.getString("timeStr") ?: ""
-                                    val screen = doc.getString("screen") ?: "System Log"
-                                    val action = doc.getString("action") ?: ""
-                                    val fName = doc.getString("firmName") ?: doc.getString("firm") ?: ""
-                                    val oldValue = doc.getString("oldValue") ?: doc.getString("details") ?: ""
-                                    val newValue = doc.getString("newValue") ?: ""
-                                    val device = doc.getString("device") ?: ""
-                                    val ipSessionId = doc.getString("ipSessionId") ?: ""
-                                    
-                                    val billNoVal = doc.get("billNo")
-                                    val billNo = when (billNoVal) {
-                                        is Number -> billNoVal.toLong().toString()
-                                        is String -> billNoVal
-                                        else -> ""
-                                    }
-                                    val partyName = doc.getString("partyName") ?: ""
-
-                                    val logItem = AuditLog(
-                                        userName = userName,
-                                        userRole = userRole,
-                                        date = date.ifBlank { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) },
-                                        time = time.ifBlank { SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()) },
-                                        screen = screen,
-                                        action = action,
-                                        firmName = fName,
-                                        oldValue = oldValue,
-                                        newValue = newValue,
-                                        device = device,
-                                        ipSessionId = ipSessionId,
-                                        billNo = billNo,
-                                        partyName = partyName
-                                    )
-                                    list.add(logItem)
-                                }
-                                appRepository.syncLogsFromFirebase(list)
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Error processing logs", e)
-                            }
-                        }
-                    }
-                }
+            // 6. Listen to Audit Logs (Unnecessary as we only use a real-time Firestore pipeline with caching now)
+            // auditLogsListener is no longer required for local Room persistence.
 
         } catch (e: Exception) {
             Log.e(TAG, "Error starting sync", e)

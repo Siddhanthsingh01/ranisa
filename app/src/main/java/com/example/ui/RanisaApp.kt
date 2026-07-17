@@ -7723,33 +7723,128 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
     val activeFirm by viewModel.activeFirm.collectAsState()
     var isGlobalAdminMode by remember { mutableStateOf(true) }
 
-    var logsList by remember { mutableStateOf(listOf<com.google.firebase.firestore.DocumentSnapshot>()) }
-    var lastDoc by remember { mutableStateOf<com.google.firebase.firestore.DocumentSnapshot?>(null) }
-    var hasMore by remember { mutableStateOf(true) }
-    var isLoading by remember { mutableStateOf(false) }
+    // Unified pagination + real-time states
+    var liveLogs by remember { mutableStateOf<List<com.google.firebase.firestore.DocumentSnapshot>>(emptyList()) }
+    var paginatedLogs by remember { mutableStateOf<List<com.google.firebase.firestore.DocumentSnapshot>>(emptyList()) }
     var isInitialLoading by remember { mutableStateOf(true) }
+    var isLoadingMore by remember { mutableStateOf(false) }
+    var hasMore by remember { mutableStateOf(true) }
+    var queryError by remember { mutableStateOf<String?>(null) }
+    var retryTrigger by remember { mutableStateOf(0) }
+    var lastIsGlobalAdminMode by remember { mutableStateOf(isGlobalAdminMode) }
+    var lastActiveFirm by remember { mutableStateOf(activeFirm) }
 
-    var actionFilter by remember { mutableStateOf("All") }
-    var moduleFilter by remember { mutableStateOf("All") }
-    var statusFilter by remember { mutableStateOf("All") }
-    var emailFilter by remember { mutableStateOf("All") }
-    var searchQuery by remember { mutableStateOf("") }
-
-    var selectedLogForDetail by remember { mutableStateOf<com.google.firebase.firestore.DocumentSnapshot?>(null) }
-
-    // Dynamic filters derived from loaded logs to avoid hiding all data
-    val actionTypes = remember(logsList) {
-        val list = mutableListOf("All")
-        logsList.forEach { doc ->
-            val act = doc.getString("actionType") ?: doc.getString("action") ?: ""
-            if (act.isNotBlank() && !list.contains(act)) {
-                list.add(act)
-            }
+    // Combined logs cache: removes duplicates, sorts descending stably by timestamp
+    val logsList = remember(liveLogs, paginatedLogs) {
+        val merged = (liveLogs + paginatedLogs).distinctBy { it.id }
+        merged.sortedWith { d1, d2 ->
+            val t1 = d1.getTimestamp("timestamp")?.seconds ?: 0L
+            val t2 = d2.getTimestamp("timestamp")?.seconds ?: 0L
+            t2.compareTo(t1)
         }
-        list
     }
 
-    val modules = remember(logsList) {
+    // Collapsible Advanced Filtering Panel States
+    var isFiltersExpanded by remember { mutableStateOf(false) }
+
+    // Temp filters for Apply/Reset workflow
+    var tempSearchQuery by remember { mutableStateOf("") }
+    var tempActionFilter by remember { mutableStateOf("All") }
+    var tempModuleFilter by remember { mutableStateOf("All") }
+    var tempEmailFilter by remember { mutableStateOf("All") }
+    var tempDateFilter by remember { mutableStateOf("All") }
+    var tempStatusFilter by remember { mutableStateOf("All") }
+    var tempStartDateStr by remember { mutableStateOf("") }
+    var tempEndDateStr by remember { mutableStateOf("") }
+
+    // Active filters
+    var searchQuery by remember { mutableStateOf("") }
+    var actionFilter by remember { mutableStateOf("All") }
+    var moduleFilter by remember { mutableStateOf("All") }
+    var emailFilter by remember { mutableStateOf("All") }
+    var dateFilter by remember { mutableStateOf("All") }
+    var statusFilter by remember { mutableStateOf("All") }
+    var startDateStr by remember { mutableStateOf("") }
+    var endDateStr by remember { mutableStateOf("") }
+
+    var expandedLogId by remember { mutableStateOf<String?>(null) }
+    var selectedLogForDetail by remember { mutableStateOf<com.google.firebase.firestore.DocumentSnapshot?>(null) }
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // Real-time live snapshot listener updates (fetches first 50 live records)
+    DisposableEffect(isGlobalAdminMode, activeFirm, retryTrigger) {
+        val firmId = activeFirm?.let { com.example.data.FirebaseService.getSanitizedFirmId(it.name) } ?: "F001"
+        val isModeOrFirmChanged = isGlobalAdminMode != lastIsGlobalAdminMode || activeFirm != lastActiveFirm
+        
+        if (isModeOrFirmChanged || logsList.isEmpty()) {
+            isInitialLoading = true
+            liveLogs = emptyList()
+            paginatedLogs = emptyList()
+            hasMore = true
+        }
+        
+        lastIsGlobalAdminMode = isGlobalAdminMode
+        lastActiveFirm = activeFirm
+        queryError = null
+        val registration = com.example.data.FirebaseService.getEnterpriseAuditLogsListener(
+            currentFirmId = firmId,
+            isGlobalAdminMode = isGlobalAdminMode,
+            limit = 50,
+            onUpdate = { updatedList ->
+                liveLogs = updatedList
+                isInitialLoading = false
+                queryError = null
+            },
+            onError = { err ->
+                android.util.Log.e("LogHistoryScreen", "Real-time log registration failed: ${err.message}", err)
+                queryError = "Real-time compliance sync failure: ${err.localizedMessage ?: err.message}"
+                isInitialLoading = false
+            }
+        )
+        onDispose {
+            registration.remove()
+        }
+    }
+
+    // Pagination routine to fetch next 50 historical logs
+    fun loadNextPage() {
+        if (isLoadingMore || !hasMore || logsList.isEmpty()) return
+        isLoadingMore = true
+        val lastDoc = logsList.lastOrNull()
+        val firmId = activeFirm?.let { com.example.data.FirebaseService.getSanitizedFirmId(it.name) } ?: "F001"
+        
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val nextDocs = com.example.data.FirebaseService.getEnterpriseAuditLogsPaginated(
+                    currentFirmId = firmId,
+                    isGlobalAdminMode = isGlobalAdminMode,
+                    limit = 50,
+                    startAfterDoc = lastDoc
+                )
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    if (nextDocs.isEmpty()) {
+                        hasMore = false
+                    } else {
+                        paginatedLogs = paginatedLogs + nextDocs
+                        if (nextDocs.size < 50) {
+                            hasMore = false
+                        }
+                    }
+                    isLoadingMore = false
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("LogHistoryScreen", "Pagination load failed", e)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    isLoadingMore = false
+                }
+            }
+        }
+    }
+
+    // Extraction lists for dropdown option menus
+    val allModules = remember(logsList) {
         val list = mutableListOf("All")
         logsList.forEach { doc ->
             val mod = doc.getString("module") ?: doc.getString("screen") ?: ""
@@ -7760,53 +7855,55 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
         list
     }
 
-    val userEmails = remember(logsList) {
+    val allActions = listOf("All", "CREATE", "UPDATE", "DELETE", "LOGIN", "LOGOUT", "SECURITY", "PAYMENT", "SYNC", "PRINT", "EXPORT")
+
+    val allUsers = remember(logsList) {
         val list = mutableListOf("All")
         logsList.forEach { doc ->
             val email = doc.getString("userEmail") ?: doc.getString("user") ?: ""
-            if (email.isNotBlank() && !list.contains(email)) {
-                list.add(email)
+            val name = doc.getString("userName") ?: ""
+            val identifier = if (email.isNotBlank()) email else name
+            if (identifier.isNotBlank() && !list.contains(identifier)) {
+                list.add(identifier)
             }
         }
         list
     }
 
-    val scope = rememberCoroutineScope()
+    val allDates = listOf("All", "Today", "Yesterday", "Last 7 Days", "Last 30 Days", "Custom Range")
+    val allStatuses = listOf("All", "Success", "Failed")
 
-    fun loadInitialLogs() {
-        isLoading = true
-        isInitialLoading = true
-        scope.launch(kotlinx.coroutines.Dispatchers.Main) {
-            try {
-                val firmId = activeFirm?.let { com.example.data.FirebaseService.getSanitizedFirmId(it.name) } ?: "F001"
-                val res = com.example.data.FirebaseService.getEnterpriseAuditLogs(
-                    currentFirmId = firmId,
-                    isGlobalAdminMode = isGlobalAdminMode,
-                    limit = 300
-                )
-                logsList = res.first
-                lastDoc = res.first.lastOrNull()
-                hasMore = res.second
-            } catch (e: Exception) {
-                android.util.Log.e("LogHistoryScreen", "Failed to load audit logs", e)
-            } finally {
-                isLoading = false
-                isInitialLoading = false
+    // Dynamic compliance statistics
+    val stats = remember(logsList) {
+        var createCount = 0
+        var updateCount = 0
+        var deleteCount = 0
+        var securityCount = 0
+        var errorCount = 0
+        
+        logsList.forEach { doc ->
+            val act = (doc.getString("actionType") ?: doc.getString("action") ?: "").uppercase()
+            when {
+                act.contains("CREATE") || act.contains("ADD") || act.contains("INSERT") -> createCount++
+                act.contains("UPDATE") || act.contains("EDIT") -> updateCount++
+                act.contains("DELETE") || act.contains("REMOVE") -> deleteCount++
+                act.contains("LOGIN") || act.contains("LOGOUT") -> securityCount++
+                act.contains("ERROR") || act.contains("FAILED") -> errorCount++
             }
         }
-    }
-
-    fun loadMoreLogs() {
-        // No-op because 300 initial client-side logs is generous and pre-sorted
-    }
-
-    LaunchedEffect(isGlobalAdminMode, activeFirm) {
-        loadInitialLogs()
+        mapOf(
+            "total" to logsList.size,
+            "create" to createCount,
+            "update" to updateCount,
+            "delete" to deleteCount,
+            "security" to securityCount,
+            "error" to errorCount
+        )
     }
 
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
 
-    val filteredLogs = remember(logsList, searchQuery, actionFilter, moduleFilter, statusFilter, emailFilter, isInitialLoading) {
+    val filteredLogs = remember(logsList, searchQuery, actionFilter, moduleFilter, statusFilter, emailFilter, dateFilter, startDateStr, endDateStr, isInitialLoading) {
         if (isInitialLoading) {
             listOf()
         } else {
@@ -7821,11 +7918,74 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
                 val statusMatch = statusFilter == "All" || status.equals(statusFilter, ignoreCase = true)
                 
                 val userEmail = doc.getString("userEmail") ?: doc.getString("user") ?: ""
-                val emailMatch = emailFilter == "All" || userEmail.equals(emailFilter, ignoreCase = true) || (doc.getString("userName") ?: "").equals(emailFilter, ignoreCase = true)
+                val userName = doc.getString("userName") ?: ""
+                val emailMatch = emailFilter == "All" || 
+                                 userEmail.equals(emailFilter, ignoreCase = true) || 
+                                 userName.equals(emailFilter, ignoreCase = true)
                 
-                val userName = doc.getString("userName") ?: doc.getString("user") ?: ""
+                // Advanced calendar matching
+                val docTimestamp = doc.getTimestamp("timestamp")
+                val docDate = docTimestamp?.toDate()
+                val dateMatch = when (dateFilter) {
+                    "All" -> true
+                    "Today" -> {
+                        if (docDate == null) false else {
+                            val calDoc = java.util.Calendar.getInstance().apply { time = docDate }
+                            val calNow = java.util.Calendar.getInstance()
+                            calDoc.get(java.util.Calendar.YEAR) == calNow.get(java.util.Calendar.YEAR) &&
+                            calDoc.get(java.util.Calendar.DAY_OF_YEAR) == calNow.get(java.util.Calendar.DAY_OF_YEAR)
+                        }
+                    }
+                    "Yesterday" -> {
+                        if (docDate == null) false else {
+                            val calDoc = java.util.Calendar.getInstance().apply { time = docDate }
+                            val calYesterday = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, -1) }
+                            calDoc.get(java.util.Calendar.YEAR) == calYesterday.get(java.util.Calendar.YEAR) &&
+                            calDoc.get(java.util.Calendar.DAY_OF_YEAR) == calYesterday.get(java.util.Calendar.DAY_OF_YEAR)
+                        }
+                    }
+                    "Last 7 Days" -> {
+                        if (docDate == null) false else {
+                            val diffMs = System.currentTimeMillis() - docDate.time
+                            diffMs <= 7L * 24 * 60 * 60 * 1000
+                        }
+                    }
+                    "Last 30 Days" -> {
+                        if (docDate == null) false else {
+                            val diffMs = System.currentTimeMillis() - docDate.time
+                            diffMs <= 30L * 24 * 60 * 60 * 1000
+                        }
+                    }
+                    "Custom Range" -> {
+                        if (startDateStr.isNotBlank() && endDateStr.isNotBlank()) {
+                            try {
+                                val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                                val start = sdf.parse(startDateStr)
+                                val end = sdf.parse(endDateStr)
+                                val endCal = java.util.Calendar.getInstance().apply {
+                                    time = end
+                                    set(java.util.Calendar.HOUR_OF_DAY, 23)
+                                    set(java.util.Calendar.MINUTE, 59)
+                                    set(java.util.Calendar.SECOND, 59)
+                                }
+                                if (docDate != null) {
+                                    docDate >= start && docDate <= endCal.time
+                                } else false
+                            } catch (e: Exception) {
+                                true
+                            }
+                        } else {
+                            true
+                        }
+                    }
+                    else -> true
+                }
+                
                 val recordTitle = doc.getString("recordTitle") ?: doc.getString("details") ?: ""
                 val docId = doc.getString("documentId") ?: doc.id
+                val billNo = doc.getString("billNo") ?: ""
+                val partyName = doc.getString("partyName") ?: ""
+                val firmName = doc.getString("firmName") ?: ""
                 
                 val queryMatch = searchQuery.isBlank() ||
                     userName.contains(searchQuery, ignoreCase = true) ||
@@ -7833,303 +7993,497 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
                     recordTitle.contains(searchQuery, ignoreCase = true) ||
                     actionType.contains(searchQuery, ignoreCase = true) ||
                     module.contains(searchQuery, ignoreCase = true) ||
-                    docId.contains(searchQuery, ignoreCase = true)
+                    docId.contains(searchQuery, ignoreCase = true) ||
+                    billNo.contains(searchQuery, ignoreCase = true) ||
+                    partyName.contains(searchQuery, ignoreCase = true) ||
+                    firmName.contains(searchQuery, ignoreCase = true)
                     
-                actionMatch && moduleMatch && statusMatch && emailMatch && queryMatch
+                actionMatch && moduleMatch && statusMatch && emailMatch && dateMatch && queryMatch
             }
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize().testTag("audit_log_lazy_column"),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text(
-                    text = "Enterprise Global Audit Log",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = "Append-only system-wide activity registry for compliance and system tracking.",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            IconButton(
-                onClick = { loadInitialLogs() },
-                modifier = Modifier.testTag("refresh_audit_logs_btn")
+        // 1. Title Header & Active Indicator
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = "Refresh",
-                    tint = MaterialTheme.colorScheme.primary
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Enterprise Global Audit Log",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Real-time compliance registry and data activity tracking.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                
+                // Visual Sync
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .background(Color(0xFF0D9488).copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .background(Color(0xFF0D9488), RoundedCornerShape(3.dp))
+                    )
+                    Text("LIVE", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0D9488))
+                }
+            }
+        }
+
+        // 2. Export Buttons Panel
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = { com.example.util.AuditExportHelper.exportToPdf(context, filteredLogs) },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.height(34.dp).weight(1f).testTag("export_pdf_btn")
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = "PDF", modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+                
+                Button(
+                    onClick = { com.example.util.AuditExportHelper.exportToExcelCsv(context, filteredLogs) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.height(34.dp).weight(1f).testTag("export_excel_btn")
+                ) {
+                    Icon(Icons.Default.Menu, contentDescription = "Excel", modifier = Modifier.size(14.dp), tint = Color.White)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Excel", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                }
+
+                Button(
+                    onClick = { com.example.util.AuditExportHelper.printAuditLog(context, filteredLogs) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF64748B)),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.height(34.dp).weight(1f).testTag("print_audit_btn")
+                ) {
+                    Icon(Icons.Default.Print, contentDescription = "Print", modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Print", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        // 3. Global Switch Panel
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Global Admin Scope (All Firms)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text(
+                        text = if (isGlobalAdminMode) "Active Group-wide sync of audit logs" else "Restricted active firm logs: ${activeFirm?.name ?: "None"}",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = isGlobalAdminMode,
+                    onCheckedChange = { isGlobalAdminMode = it },
+                    modifier = Modifier.testTag("global_admin_mode_switch").scale(0.85f)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        // 4. Compact Metrics Visual Grid
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            ) {
+                Column(modifier = Modifier.padding(10.dp)) {
+                    Text("Compliance Registry Key Metrics", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                            Text("${stats["total"] ?: 0}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Text("Total Events", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                            Text("${stats["create"] ?: 0}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0D9488))
+                            Text("Creates", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                            Text("${stats["update"] ?: 0}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFFD97706))
+                            Text("Updates", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                            Text("${stats["delete"] ?: 0}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFFEF4444))
+                            Text("Deletes", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                            Text("${stats["security"] ?: 0}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF3B82F6))
+                            Text("Security", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    val totalPct = (stats["total"] ?: 0).toFloat()
+                    if (totalPct > 0) {
+                        val cPct = (stats["create"] ?: 0).toFloat() / totalPct
+                        val uPct = (stats["update"] ?: 0).toFloat() / totalPct
+                        val dPct = (stats["delete"] ?: 0).toFloat() / totalPct
+                        val sPct = (stats["security"] ?: 0).toFloat() / totalPct
+                        val restPct = (totalPct - (stats["create"] ?: 0) - (stats["update"] ?: 0) - (stats["delete"] ?: 0) - (stats["security"] ?: 0)).coerceAtLeast(0f) / totalPct
+                        
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(5.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                        ) {
+                            if (cPct > 0) Box(modifier = Modifier.weight(cPct).fillMaxHeight().background(Color(0xFF0D9488)))
+                            if (uPct > 0) Box(modifier = Modifier.weight(uPct).fillMaxHeight().background(Color(0xFFD97706)))
+                            if (dPct > 0) Box(modifier = Modifier.weight(dPct).fillMaxHeight().background(Color(0xFFEF4444)))
+                            if (sPct > 0) Box(modifier = Modifier.weight(sPct).fillMaxHeight().background(Color(0xFF3B82F6)))
+                            if (restPct > 0) Box(modifier = Modifier.weight(restPct).fillMaxHeight().background(Color(0xFF64748B)))
+                        }
+                    }
+                }
+            }
+        }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Global Admin Mode (All Firms)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                Text(
-                    text = if (isGlobalAdminMode) "Using collectionGroup('logs') across all firms" else "Showing logs only for active firm: ${activeFirm?.name ?: "None"}",
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+        // 5. Compact Search Bar & Collapsible Panel Button Row
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = tempSearchQuery,
+                    onValueChange = { tempSearchQuery = it },
+                    placeholder = { Text("Search logs...", fontSize = 13.sp) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .testTag("audit_search_input"),
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", modifier = Modifier.size(16.dp)) },
+                    trailingIcon = {
+                        if (tempSearchQuery.isNotEmpty()) {
+                            IconButton(onClick = { tempSearchQuery = "" }) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                    ),
+                    singleLine = true
                 )
-            }
-            Switch(
-                checked = isGlobalAdminMode,
-                onCheckedChange = { isGlobalAdminMode = it },
-                modifier = Modifier.testTag("global_admin_mode_switch")
-            )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            label = { Text("Search logs (user, title, email, doc ID, action)") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("audit_search_input"),
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search Icon") },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { searchQuery = "" }) {
-                        Icon(Icons.Default.Close, contentDescription = "Clear search")
-                    }
-                }
-            },
-            singleLine = true
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text("Quick Filter Parameters:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-        
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Module: ", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(60.dp))
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                
+                Button(
+                    onClick = { isFiltersExpanded = !isFiltersExpanded },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isFiltersExpanded) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = if (isFiltersExpanded) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.height(48.dp).testTag("filters_toggle_btn"),
+                    contentPadding = PaddingValues(horizontal = 12.dp)
                 ) {
-                    modules.forEach { mod ->
-                        FilterChip(
-                            selected = moduleFilter == mod,
-                            onClick = { moduleFilter = mod },
-                            label = { Text(mod, fontSize = 10.sp) }
-                        )
-                    }
-                }
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Action: ", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(60.dp))
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    actionTypes.forEach { act ->
-                        FilterChip(
-                            selected = actionFilter == act,
-                            onClick = { actionFilter = act },
-                            label = { Text(act, fontSize = 10.sp) }
-                        )
-                    }
-                }
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("User: ", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(60.dp))
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    userEmails.forEach { email ->
-                        val displayEmail = if (email.contains("@")) email.substringBefore("@") else email
-                        FilterChip(
-                            selected = emailFilter == email,
-                            onClick = { emailFilter = email },
-                            label = { Text(displayEmail, fontSize = 10.sp) }
-                        )
-                    }
+                    Icon(Icons.Default.Settings, contentDescription = "Filters", modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Filters", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        // 6. Expandable Dropdown Parameters Panel
+        item {
+            AnimatedVisibility(
+                visible = isFiltersExpanded,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("Advanced Log Query Filtering", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        
+                        FilterDropdown(
+                            label = "Module",
+                            selected = tempModuleFilter,
+                            options = allModules,
+                            onSelect = { tempModuleFilter = it }
+                        )
+                        
+                        FilterDropdown(
+                            label = "Action Type",
+                            selected = tempActionFilter,
+                            options = allActions,
+                            onSelect = { tempActionFilter = it }
+                        )
+                        
+                        FilterDropdown(
+                            label = "User / Initiator",
+                            selected = tempEmailFilter,
+                            options = allUsers,
+                            onSelect = { tempEmailFilter = it }
+                        )
+                        
+                        FilterDropdown(
+                            label = "Date Range",
+                            selected = tempDateFilter,
+                            options = allDates,
+                            onSelect = { tempDateFilter = it }
+                        )
+                        
+                        if (tempDateFilter == "Custom Range") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = tempStartDateStr,
+                                    onValueChange = { tempStartDateStr = it },
+                                    label = { Text("Start Date (YYYY-MM-DD)", fontSize = 10.sp) },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true
+                                )
+                                OutlinedTextField(
+                                    value = tempEndDateStr,
+                                    onValueChange = { tempEndDateStr = it },
+                                    label = { Text("End Date (YYYY-MM-DD)", fontSize = 10.sp) },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true
+                                )
+                            }
+                        }
+                        
+                        FilterDropdown(
+                            label = "Status",
+                            selected = tempStatusFilter,
+                            options = allStatuses,
+                            onSelect = { tempStatusFilter = it }
+                        )
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    tempSearchQuery = ""
+                                    tempActionFilter = "All"
+                                    tempModuleFilter = "All"
+                                    tempEmailFilter = "All"
+                                    tempDateFilter = "All"
+                                    tempStatusFilter = "All"
+                                    tempStartDateStr = ""
+                                    tempEndDateStr = ""
+                                    
+                                    searchQuery = ""
+                                    actionFilter = "All"
+                                    moduleFilter = "All"
+                                    emailFilter = "All"
+                                    dateFilter = "All"
+                                    statusFilter = "All"
+                                    startDateStr = ""
+                                    endDateStr = ""
+                                }
+                            ) {
+                                Text("Reset", color = MaterialTheme.colorScheme.error)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    searchQuery = tempSearchQuery
+                                    actionFilter = tempActionFilter
+                                    moduleFilter = tempModuleFilter
+                                    emailFilter = tempEmailFilter
+                                    dateFilter = tempDateFilter
+                                    statusFilter = tempStatusFilter
+                                    startDateStr = tempStartDateStr
+                                    endDateStr = tempEndDateStr
+                                    isFiltersExpanded = false
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            ) {
+                                Text("Apply Filters")
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
-        if (isInitialLoading) {
-            Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+        // 7. Active Filtering Removable Chips Bar
+        item {
+            val hasActiveFilters = searchQuery.isNotBlank() || actionFilter != "All" || moduleFilter != "All" || emailFilter != "All" || dateFilter != "All" || statusFilter != "All"
+            if (hasActiveFilters) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (searchQuery.isNotBlank()) {
+                        FilterChipActive("Query: $searchQuery") {
+                            searchQuery = ""
+                            tempSearchQuery = ""
+                        }
+                    }
+                    if (actionFilter != "All") {
+                        FilterChipActive("Action: $actionFilter") {
+                            actionFilter = "All"
+                            tempActionFilter = "All"
+                        }
+                    }
+                    if (moduleFilter != "All") {
+                        FilterChipActive("Module: $moduleFilter") {
+                            moduleFilter = "All"
+                            tempModuleFilter = "All"
+                        }
+                    }
+                    if (emailFilter != "All") {
+                        FilterChipActive("User: $emailFilter") {
+                            emailFilter = "All"
+                            tempEmailFilter = "All"
+                        }
+                    }
+                    if (dateFilter != "All") {
+                        FilterChipActive("Date: $dateFilter") {
+                            dateFilter = "All"
+                            tempDateFilter = "All"
+                        }
+                    }
+                    if (statusFilter != "All") {
+                        FilterChipActive("Status: $statusFilter") {
+                            statusFilter = "All"
+                            tempStatusFilter = "All"
+                        }
+                    }
+                }
+            }
+        }
+
+        // 8. Error / Sync Failure Alert Panel
+        if (queryError != null) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Security Database Sync Failure", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer)
+                        Text(queryError ?: "Connection issue during compliance stream updates.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onErrorContainer)
+                        Button(
+                            onClick = {
+                                queryError = null
+                                retryTrigger++
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("Retry Sync Connection")
+                        }
+                    }
+                }
+            }
+        }
+
+        // 9. Main Log History Records Feed Flow
+        if (isInitialLoading && logsList.isEmpty()) {
+            item {
+                Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            }
+        } else if (logsList.isEmpty()) {
+            item {
+                Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.Info, contentDescription = "No logs", modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                        Text("No enterprise compliance logs available in the database.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
         } else if (filteredLogs.isEmpty()) {
-            Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.Info, contentDescription = "No logs", modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
-                    Text("No matching enterprise audit logs found.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            item {
+                Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.Info, contentDescription = "No match", modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                        Text("No matching enterprise audit logs found.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
         } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(filteredLogs, key = { doc -> doc.id }) { doc ->
-                    val index = filteredLogs.indexOf(doc)
-                    if (index >= filteredLogs.size - 5) {
-                        LaunchedEffect(filteredLogs.size) {
-                            loadMoreLogs()
-                        }
+            items(filteredLogs, key = { doc -> doc.id }) { doc ->
+                LogCardInline(
+                    doc = doc,
+                    isExpanded = expandedLogId == doc.id,
+                    onToggleExpand = {
+                        expandedLogId = if (expandedLogId == doc.id) null else doc.id
+                    },
+                    onDeepInspect = {
+                        selectedLogForDetail = doc
                     }
-                    val actionType = doc.getString("actionType") ?: "SYSTEM"
-                    val userName = doc.getString("userName") ?: "System"
-                    val userEmail = doc.getString("userEmail") ?: ""
-                    val recordTitle = doc.getString("recordTitle") ?: ""
-                    val module = doc.getString("module") ?: "System"
-                    val status = doc.getString("status") ?: "Success"
-                    
-                    val timestamp = doc.getTimestamp("timestamp")
-                    val formattedTime = if (timestamp != null) {
-                        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(timestamp.toDate())
-                    } else {
-                        "Just now"
+                )
+            }
+            
+            // 10. Paginated Load More Loader
+            if (hasMore) {
+                item {
+                    LaunchedEffect(Unit) {
+                        loadNextPage()
                     }
-
-                    val isDelet = actionType.contains("DELETE", ignoreCase = true)
-                    val isUpdat = actionType.contains("UPDATE", ignoreCase = true)
-                    val isCreat = actionType.contains("CREATE", ignoreCase = true)
-
-                    val actionBg = when {
-                        isDelet -> MaterialTheme.colorScheme.errorContainer
-                        isUpdat -> MaterialTheme.colorScheme.tertiaryContainer
-                        isCreat -> MaterialTheme.colorScheme.primaryContainer
-                        else -> MaterialTheme.colorScheme.secondaryContainer
-                    }
-
-                    val actionColor = when {
-                        isDelet -> MaterialTheme.colorScheme.onErrorContainer
-                        isUpdat -> MaterialTheme.colorScheme.onTertiaryContainer
-                        isCreat -> MaterialTheme.colorScheme.onPrimaryContainer
-                        else -> MaterialTheme.colorScheme.onSecondaryContainer
-                    }
-
-                    val avatarText = if (userName.isNotBlank()) userName.take(2).uppercase() else "UN"
-
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { selectedLogForDetail = doc }
-                            .testTag("audit_log_item_${doc.id}"),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(32.dp)
-                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(16.dp)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(avatarText, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                    }
-                                    Column {
-                                        Text(userName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                                        if (userEmail.isNotBlank()) {
-                                            Text(userEmail, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                    }
-                                }
-                                Text(formattedTime, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .background(actionBg, RoundedCornerShape(6.dp))
-                                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    Text(actionType, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = actionColor)
-                                }
-
-                                Text(
-                                    text = "Module: $module",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-
-                            if (recordTitle.isNotBlank()) {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = recordTitle,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                val statusColor = if (status.equals("Success", ignoreCase = true)) Color(0xFF0D9488) else Color(0xFFE11D48)
-                                Box(
-                                    modifier = Modifier
-                                        .background(statusColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(status.uppercase(), fontSize = 9.sp, fontWeight = FontWeight.Bold, color = statusColor)
-                                }
-
-                                val docId = doc.getString("documentId") ?: ""
-                                if (docId.isNotBlank()) {
-                                    Text("Ref ID: ${docId.take(12)}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (isLoading) {
-                    item {
-                        Box(modifier = Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                            Text("Loading more historical logs...", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -8137,6 +8491,7 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
         }
     }
 
+    // 11. Custom Fullscreen Deep Inspection Dialog
     selectedLogForDetail?.let { doc ->
         val logId = doc.getString("logId") ?: doc.id
         val userName = doc.getString("userName") ?: "System"
@@ -8158,7 +8513,7 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
 
         val timestamp = doc.getTimestamp("timestamp")
         val formattedTime = if (timestamp != null) {
-            SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault()).format(timestamp.toDate())
+            java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", java.util.Locale.getDefault()).format(timestamp.toDate())
         } else {
             "Just now"
         }
@@ -8166,12 +8521,10 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
         fun formatJson(json: String): String {
             if (json.isBlank()) return "None"
             return try {
-                val obj = org.json.JSONObject(json)
-                obj.toString(4)
+                org.json.JSONObject(json).toString(4)
             } catch (e: Exception) {
                 try {
-                    val arr = org.json.JSONArray(json)
-                    arr.toString(4)
+                    org.json.JSONArray(json).toString(4)
                 } catch (e2: Exception) {
                     json
                 }
@@ -8186,9 +8539,7 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
             properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Surface(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
                 color = MaterialTheme.colorScheme.surface
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
@@ -8354,6 +8705,376 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
             }
         }
     }
+}
+
+// Custom Helper Composables and Utility Functions for Enterprise Logs Screen
+
+@Composable
+fun FilterDropdown(
+    label: String,
+    selected: String,
+    options: List<String>,
+    onSelect: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier = Modifier.fillMaxWidth()) {
+        OutlinedCard(
+            onClick = { expanded = true },
+            modifier = Modifier.fillMaxWidth(),
+            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(label, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(selected, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+                Icon(
+                    imageVector = Icons.Default.ArrowDropDown,
+                    contentDescription = "Dropdown",
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.fillMaxWidth(0.9f)
+        ) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option, fontSize = 12.sp) },
+                    onClick = {
+                        onSelect(option)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun FilterChipActive(
+    text: String,
+    onRemove: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.padding(end = 4.dp, bottom = 4.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(text, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = "Remove filter",
+                modifier = Modifier
+                    .size(12.dp)
+                    .clickable { onRemove() },
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
+    }
+}
+
+@Composable
+fun LogCardInline(
+    doc: com.google.firebase.firestore.DocumentSnapshot,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit,
+    onDeepInspect: () -> Unit
+) {
+    val actionType = doc.getString("actionType") ?: doc.getString("action") ?: "SYSTEM"
+    val userName = doc.getString("userName") ?: doc.getString("user") ?: "System"
+    val userEmail = doc.getString("userEmail") ?: ""
+    val recordTitle = doc.getString("recordTitle") ?: doc.getString("details") ?: ""
+    val module = doc.getString("module") ?: doc.getString("screen") ?: "System"
+    val status = doc.getString("status") ?: "Success"
+    val billNo = doc.getString("billNo") ?: ""
+    val partyName = doc.getString("partyName") ?: ""
+    val docId = doc.getString("documentId") ?: doc.id
+    
+    val timestamp = doc.getTimestamp("timestamp")
+    val formattedTime = if (timestamp != null) {
+        java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(timestamp.toDate())
+    } else {
+        "Just now"
+    }
+
+    val actionBg = when {
+        actionType.contains("CREATE", ignoreCase = true) || actionType.contains("ADD", ignoreCase = true) -> Color(0xFF0D9488).copy(alpha = 0.15f)
+        actionType.contains("UPDATE", ignoreCase = true) || actionType.contains("EDIT", ignoreCase = true) -> Color(0xFFD97706).copy(alpha = 0.15f)
+        actionType.contains("DELETE", ignoreCase = true) || actionType.contains("REMOVE", ignoreCase = true) -> Color(0xFFEF4444).copy(alpha = 0.15f)
+        actionType.contains("LOGIN", ignoreCase = true) || actionType.contains("LOGOUT", ignoreCase = true) -> Color(0xFF3B82F6).copy(alpha = 0.15f)
+        actionType.contains("SECURITY", ignoreCase = true) -> Color(0xFF8B5CF6).copy(alpha = 0.15f)
+        else -> Color(0xFF64748B).copy(alpha = 0.15f)
+    }
+    val actionColor = when {
+        actionType.contains("CREATE", ignoreCase = true) || actionType.contains("ADD", ignoreCase = true) -> Color(0xFF0D9488)
+        actionType.contains("UPDATE", ignoreCase = true) || actionType.contains("EDIT", ignoreCase = true) -> Color(0xFFD97706)
+        actionType.contains("DELETE", ignoreCase = true) || actionType.contains("REMOVE", ignoreCase = true) -> Color(0xFFEF4444)
+        actionType.contains("LOGIN", ignoreCase = true) || actionType.contains("LOGOUT", ignoreCase = true) -> Color(0xFF3B82F6)
+        actionType.contains("SECURITY", ignoreCase = true) -> Color(0xFF8B5CF6)
+        else -> Color(0xFF64748B)
+    }
+
+    val avatarText = if (userName.isNotBlank()) userName.take(2).uppercase() else "UN"
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onToggleExpand() }
+            .testTag("audit_log_item_${doc.id}"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(16.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(avatarText, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    }
+                    Column {
+                        Text(userName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (userEmail.isNotBlank()) {
+                            Text(userEmail, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+                Text(formattedTime, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .background(actionBg, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(actionType.uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = actionColor)
+                }
+
+                Box(
+                    modifier = Modifier
+                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text("Module: $module", fontSize = 10.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+
+                val statusColor = if (status.equals("Success", ignoreCase = true)) Color(0xFF0D9488) else Color(0xFFE11D48)
+                Box(
+                    modifier = Modifier
+                        .background(statusColor.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(status.uppercase(), fontSize = 9.sp, fontWeight = FontWeight.Bold, color = statusColor)
+                }
+            }
+
+            if (recordTitle.isNotBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = recordTitle,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            if (billNo.isNotBlank() || partyName.isNotBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (billNo.isNotBlank()) {
+                        Text("Bill: #$billNo", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                    }
+                    if (partyName.isNotBlank()) {
+                        Text("Party: $partyName", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            if (docId.isNotBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Doc Ref ID: $docId", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+            }
+
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
+                        .border(BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)), RoundedCornerShape(6.dp))
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val oldData = doc.getString("oldData") ?: ""
+                    val newData = doc.getString("newData") ?: ""
+                    val oldMap = remember(oldData) { parseJsonToMap(oldData) }
+                    val newMap = remember(newData) { parseJsonToMap(newData) }
+
+                    val isDelet = actionType.contains("DELETE", ignoreCase = true) || actionType.contains("REMOVE", ignoreCase = true)
+                    val isUpdat = actionType.contains("UPDATE", ignoreCase = true) || actionType.contains("EDIT", ignoreCase = true)
+                    val isCreat = actionType.contains("CREATE", ignoreCase = true) || actionType.contains("ADD", ignoreCase = true)
+
+                    when {
+                        isCreat -> {
+                            Text("New Record Created", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0D9488))
+                            if (newMap.isEmpty()) {
+                                Text(newData.ifBlank { "Detailed payload was not captured for this historical event." }, fontSize = 11.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    newMap.forEach { (k, v) ->
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text(k, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                                            Text(v.toString(), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(2f), textAlign = TextAlign.End)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        isDelet -> {
+                            Text("Deleted Record Snapshot (Data before deletion)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFEF4444))
+                            if (oldMap.isEmpty()) {
+                                Text(oldData.ifBlank { "Detailed payload was not captured for this historical event." }, fontSize = 11.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    oldMap.forEach { (k, v) ->
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text(k, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                                            Text(v.toString(), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(2f), textAlign = TextAlign.End)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        isUpdat -> {
+                            Text("Modified Field Attributes (Before → After)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFD97706))
+                            val diffs = remember(oldMap, newMap) { getDiff(oldMap, newMap) }
+                            if (diffs.isEmpty()) {
+                                Text("No changes detected in JSON fields", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    diffs.forEach { (field, before, after) ->
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                                .padding(6.dp)
+                                        ) {
+                                            Text(field, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(before.ifBlank { "(empty)" }, fontSize = 11.sp, color = Color(0xFFEF4444), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                Text("→", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Text(after.ifBlank { "(empty)" }, fontSize = 11.sp, color = Color(0xFF0D9488), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        else -> {
+                            Text("Log Payload Snapshot", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                text = if (newData.isNotBlank()) newData else if (oldData.isNotBlank()) oldData else "No diagnostic payload available for this system event.",
+                                fontSize = 11.sp,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        Button(
+                            onClick = onDeepInspect,
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(12.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Deep Inspection", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fun parseJsonToMap(jsonStr: String): Map<String, Any> {
+    if (jsonStr.isBlank()) return emptyMap()
+    return try {
+        val obj = org.json.JSONObject(jsonStr)
+        val map = mutableMapOf<String, Any>()
+        val keys = obj.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            map[key] = obj.get(key)
+        }
+        map
+    } catch (e: Exception) {
+        emptyMap()
+    }
+}
+
+fun getDiff(oldMap: Map<String, Any>, newMap: Map<String, Any>): List<Triple<String, String, String>> {
+    val diffs = mutableListOf<Triple<String, String, String>>()
+    val allKeys = oldMap.keys + newMap.keys
+    for (key in allKeys) {
+        val oldVal = oldMap[key]?.toString() ?: ""
+        val newVal = newMap[key]?.toString() ?: ""
+        if (oldVal != newVal) {
+            diffs.add(Triple(key, oldVal, newVal))
+        }
+    }
+    return diffs
 }
 
 // ==========================================

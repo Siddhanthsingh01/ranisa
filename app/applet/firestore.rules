@@ -1,0 +1,59 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Check if user is logged in
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if user is an admin
+    function isAdmin() {
+      return isAuthenticated() && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Admin' ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email == 'crsidhant01@gmail.com' ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email == 'admin@ranisa.com' ||
+        request.auth.token.email == 'crsidhant01@gmail.com' ||
+        request.auth.token.email == 'admin@ranisa.com' ||
+        request.auth.token.email.matches('.*admin.*')
+      );
+    }
+
+    // Rules matching ANY path ending in 'logs' subcollection
+    match /{path=**}/logs/{logId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        (resource != null && resource.data != null && resource.data.firmId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assignedFirms) ||
+        (path[1] == 'firms' && path[2] in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assignedFirms)
+      );
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() && isAdmin();
+    }
+
+    // Rule for firms
+    match /firms/{firmId} {
+      allow read, write: if isAuthenticated() && (
+        isAdmin() || 
+        firmId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assignedFirms
+      );
+
+      // Rule for subcollections of firms
+      match /{document=**} {
+        allow read, write: if isAuthenticated() && (
+          isAdmin() || 
+          firmId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assignedFirms
+        );
+      }
+    }
+
+    // Rules for users collection
+    match /users/{userId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Standard fallback rules for everything else
+    match /{document=**} {
+      allow read, write: if isAuthenticated();
+    }
+  }
+}
