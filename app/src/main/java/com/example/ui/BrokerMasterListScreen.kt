@@ -366,12 +366,11 @@ fun BrokerMasterListScreen(
     }
 
     // Delete Confirmation Dialog
-    // Delete Ledger Dialog
     if (showDeleteDialog && selectedBrokerForDelete != null) {
         val broker = selectedBrokerForDelete!!
         EnterpriseDialog(
-            title = "Delete all ledger records for this party?",
-            description = "This will only delete ledger transactions.\nThe Master List will remain unchanged.",
+            title = "Delete Broker Master Record?",
+            description = "Are you sure you want to delete the master record for '${broker.brokerName}'? This action cannot be undone.",
             confirmText = "Delete",
             dismissText = "Cancel",
             onConfirm = {
@@ -380,17 +379,17 @@ fun BrokerMasterListScreen(
                     title = "Ranisa Security",
                     subtitle = "Verify your fingerprint to continue.",
                     action = {
-                        viewModel.deleteBrokerLedger(
+                        viewModel.deleteBroker(
                             brokerId = broker.brokerId,
                             brokerName = broker.brokerName,
-                            onSuccess = { msg ->
+                            onSuccess = {
                                 showDeleteDialog = false
                                 scope.launch {
-                                    snackbarHostState.showSnackbar(msg)
+                                    snackbarHostState.showSnackbar("Deleted Successfully")
                                 }
                             },
                             onError = { error ->
-                                Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, error, Toast.LENGTH_LONG).show()
                             }
                         )
                     }
@@ -575,7 +574,7 @@ fun BrokerCard(
                         modifier = Modifier.testTag("broker_card_share_${broker.brokerId}")
                     )
                     DropdownMenuItem(
-                        text = { Text("🗑 Delete Ledger") },
+                        text = { Text("🗑 Delete Broker") },
                         onClick = {
                             menuExpanded = false
                             onDeleteLedger()
@@ -1087,8 +1086,8 @@ fun BrokerSelectionDialog(
                     val brokerToDelete = selectedBrokerForDelete
                     if (brokerToDelete != null) {
                         EnterpriseDialog(
-                            title = "Delete all ledger records for this party?",
-                            description = "This will only delete ledger transactions.\nThe Master List will remain unchanged.",
+                            title = "Delete Broker Master Record?",
+                            description = "Are you sure you want to delete the master record for '${brokerToDelete.brokerName}'? This action cannot be undone.",
                             confirmText = "Delete",
                             dismissText = "Cancel",
                             onConfirm = {
@@ -1097,11 +1096,11 @@ fun BrokerSelectionDialog(
                                     title = "Ranisa Security",
                                     subtitle = "Verify your fingerprint to continue.",
                                     action = {
-                                        viewModel.deleteBrokerLedger(
+                                        viewModel.deleteBroker(
                                             brokerId = brokerToDelete.brokerId,
                                             brokerName = brokerToDelete.brokerName,
-                                            onSuccess = { msg ->
-                                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                            onSuccess = {
+                                                Toast.makeText(context, "Deleted Successfully", Toast.LENGTH_SHORT).show()
                                                 showDeleteDialog = false
                                             },
                                             onError = { err ->

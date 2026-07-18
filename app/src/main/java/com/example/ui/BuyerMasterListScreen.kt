@@ -379,12 +379,11 @@ fun BuyerMasterListScreen(
     }
 
     // Delete Confirmation Dialog
-    // Delete Ledger Dialog
     if (showDeleteDialog && selectedBuyerForDelete != null) {
         val buyer = selectedBuyerForDelete!!
         EnterpriseDialog(
-            title = "Delete all ledger records for this party?",
-            description = "This will only delete ledger transactions.\nThe Master List will remain unchanged.",
+            title = "Delete Buyer Master Record?",
+            description = "Are you sure you want to delete the master record for '${buyer.buyerName}'? This action cannot be undone.",
             confirmText = "Delete",
             dismissText = "Cancel",
             onConfirm = {
@@ -393,17 +392,17 @@ fun BuyerMasterListScreen(
                     title = "Ranisa Security",
                     subtitle = "Verify your fingerprint to continue.",
                     action = {
-                        viewModel.deleteBuyerLedger(
+                        viewModel.deleteBuyer(
                             buyerId = buyer.buyerId,
                             buyerName = buyer.buyerName,
-                            onSuccess = { msg ->
+                            onSuccess = {
                                 showDeleteDialog = false
                                 scope.launch {
-                                    snackbarHostState.showSnackbar(msg)
+                                    snackbarHostState.showSnackbar("Deleted Successfully")
                                 }
                             },
                             onError = { error ->
-                                Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, error, Toast.LENGTH_LONG).show()
                             }
                         )
                     }
@@ -597,7 +596,7 @@ fun BuyerCard(
                         modifier = Modifier.testTag("buyer_card_share_${buyer.buyerId}")
                     )
                     DropdownMenuItem(
-                        text = { Text("🗑 Delete Ledger") },
+                        text = { Text("🗑 Delete Buyer") },
                         onClick = {
                             menuExpanded = false
                             onDeleteLedger()

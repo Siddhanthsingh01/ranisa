@@ -623,6 +623,9 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
                 firmName = activeFirm.value?.name ?: ""
             )
             if (result.first) {
+                // Immediately remove from RecyclerView list state
+                val updatedList = rtdbFullBrokers.value.filter { it.brokerId != brokerId }
+                rtdbFullBrokers.value = updatedList
                 onSuccess()
             } else {
                 onError(result.second ?: "Error deleting broker")
@@ -691,6 +694,9 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
                 firmName = activeFirm.value?.name ?: ""
             )
             if (result.first) {
+                // Immediately remove from RecyclerView list state
+                val updatedList = rtdbFullSellers.value.filter { it.sellerId != sellerId }
+                rtdbFullSellers.value = updatedList
                 onSuccess()
             } else {
                 onError(result.second ?: "Error deleting seller")
@@ -817,6 +823,9 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
                 firmName = activeFirm.value?.name ?: ""
             )
             if (result.first) {
+                // Immediately remove from RecyclerView list state
+                val updatedList = rtdbFullBuyers.value.filter { it.buyerId != buyerId }
+                rtdbFullBuyers.value = updatedList
                 onSuccess()
             } else {
                 onError(result.second ?: "Error deleting buyer")
@@ -1309,129 +1318,78 @@ class RanisaViewModel(application: Application, private val repository: AppRepos
         }
     }
 
-    fun deleteSellerLedger(sellerId: String, sellerName: String, onSuccess: (String) -> Unit, onError: (String) -> Unit) {
+    fun deleteSellerLedger(sellerName: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
         viewModelScope.launch {
             try {
-                val firm = activeFirm.value
-                if (firm == null) {
-                    onError("No active firm selected")
-                    return@launch
-                }
-                
-                val finalSellerId = sellerId.ifBlank {
-                    rtdbFullSellers.value.find { it.sellerName.equals(sellerName, ignoreCase = true) }?.sellerId ?: ""
-                }
-                
-                val result = FirebaseService.deleteLedgerFromFirebase(
-                    context = getApplication(),
-                    partyId = finalSellerId,
-                    partyName = sellerName,
-                    partyType = "seller",
-                    firmName = firm.name
-                )
-                
-                if (result.error != null) {
-                    onError("Firestore error: ${result.error}")
-                    return@launch
-                }
-                
-                if (result.documentsFound == 0) {
-                    onSuccess("No ledger transactions found.")
-                    return@launch
-                }
-                
-                val sellerBills = allBills.value.filter { it.sellerName.equals(sellerName, ignoreCase = true) }
+                val sellerBills = allBills.value.filter { it.sellerName == sellerName }
                 sellerBills.forEach { bill ->
-                    repository.deleteContractBill(bill)
+                    val associatedPayments = repository.deleteContractBill(bill)
+                    FirebaseService.deleteBillFromFirebase(
+                        getApplication(),
+                        bill,
+                        activeUser.value?.username ?: "Admin",
+                        activeUser.value?.role ?: "Admin"
+                    )
+                    associatedPayments.forEach { payment ->
+                        FirebaseService.deletePaymentFromFirebase(
+                            getApplication(),
+                            payment
+                        )
+                    }
                 }
-                
-                onSuccess("Ledger transactions deleted successfully")
+                onSuccess()
             } catch (e: Exception) {
                 onError(e.message ?: "Error deleting seller ledger")
             }
         }
     }
 
-    fun deleteBuyerLedger(buyerId: String, buyerName: String, onSuccess: (String) -> Unit, onError: (String) -> Unit) {
+    fun deleteBuyerLedger(buyerName: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
         viewModelScope.launch {
             try {
-                val firm = activeFirm.value
-                if (firm == null) {
-                    onError("No active firm selected")
-                    return@launch
-                }
-                
-                val finalBuyerId = buyerId.ifBlank {
-                    rtdbFullBuyers.value.find { it.buyerName.equals(buyerName, ignoreCase = true) }?.buyerId ?: ""
-                }
-                
-                val result = FirebaseService.deleteLedgerFromFirebase(
-                    context = getApplication(),
-                    partyId = finalBuyerId,
-                    partyName = buyerName,
-                    partyType = "buyer",
-                    firmName = firm.name
-                )
-                
-                if (result.error != null) {
-                    onError("Firestore error: ${result.error}")
-                    return@launch
-                }
-                
-                if (result.documentsFound == 0) {
-                    onSuccess("No ledger transactions found.")
-                    return@launch
-                }
-                
-                val buyerBills = allBills.value.filter { it.buyerName.equals(buyerName, ignoreCase = true) }
+                val buyerBills = allBills.value.filter { it.buyerName == buyerName }
                 buyerBills.forEach { bill ->
-                    repository.deleteContractBill(bill)
+                    val associatedPayments = repository.deleteContractBill(bill)
+                    FirebaseService.deleteBillFromFirebase(
+                        getApplication(),
+                        bill,
+                        activeUser.value?.username ?: "Admin",
+                        activeUser.value?.role ?: "Admin"
+                    )
+                    associatedPayments.forEach { payment ->
+                        FirebaseService.deletePaymentFromFirebase(
+                            getApplication(),
+                            payment
+                        )
+                    }
                 }
-                
-                onSuccess("Ledger transactions deleted successfully")
+                onSuccess()
             } catch (e: Exception) {
                 onError(e.message ?: "Error deleting buyer ledger")
             }
         }
     }
 
-    fun deleteBrokerLedger(brokerId: String, brokerName: String, onSuccess: (String) -> Unit, onError: (String) -> Unit) {
+    fun deleteBrokerLedger(brokerName: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
         viewModelScope.launch {
             try {
-                val firm = activeFirm.value
-                if (firm == null) {
-                    onError("No active firm selected")
-                    return@launch
-                }
-                
-                val finalBrokerId = brokerId.ifBlank {
-                    rtdbFullBrokers.value.find { it.brokerName.equals(brokerName, ignoreCase = true) }?.brokerId ?: ""
-                }
-                
-                val result = FirebaseService.deleteLedgerFromFirebase(
-                    context = getApplication(),
-                    partyId = finalBrokerId,
-                    partyName = brokerName,
-                    partyType = "broker",
-                    firmName = firm.name
-                )
-                
-                if (result.error != null) {
-                    onError("Firestore error: ${result.error}")
-                    return@launch
-                }
-                
-                if (result.documentsFound == 0) {
-                    onSuccess("No ledger transactions found.")
-                    return@launch
-                }
-                
-                val brokerBills = allBills.value.filter { it.brokerName.equals(brokerName, ignoreCase = true) }
+                val brokerBills = allBills.value.filter { it.brokerName == brokerName }
                 brokerBills.forEach { bill ->
-                    repository.deleteContractBill(bill)
+                    val associatedPayments = repository.deleteContractBill(bill)
+                    FirebaseService.deleteBillFromFirebase(
+                        getApplication(),
+                        bill,
+                        activeUser.value?.username ?: "Admin",
+                        activeUser.value?.role ?: "Admin"
+                    )
+                    associatedPayments.forEach { payment ->
+                        FirebaseService.deletePaymentFromFirebase(
+                            getApplication(),
+                            payment
+                        )
+                    }
                 }
-                
-                onSuccess("Ledger transactions deleted successfully")
+                onSuccess()
             } catch (e: Exception) {
                 onError(e.message ?: "Error deleting broker ledger")
             }
