@@ -381,11 +381,12 @@ fun BrokerMasterListScreen(
                     subtitle = "Verify your fingerprint to continue.",
                     action = {
                         viewModel.deleteBrokerLedger(
+                            brokerId = broker.brokerId,
                             brokerName = broker.brokerName,
-                            onSuccess = {
+                            onSuccess = { msg ->
                                 showDeleteDialog = false
                                 scope.launch {
-                                    snackbarHostState.showSnackbar("Ledger transactions deleted successfully")
+                                    snackbarHostState.showSnackbar(msg)
                                 }
                             },
                             onError = { error ->
@@ -1097,9 +1098,10 @@ fun BrokerSelectionDialog(
                                     subtitle = "Verify your fingerprint to continue.",
                                     action = {
                                         viewModel.deleteBrokerLedger(
+                                            brokerId = brokerToDelete.brokerId,
                                             brokerName = brokerToDelete.brokerName,
-                                            onSuccess = {
-                                                Toast.makeText(context, "Ledger transactions deleted successfully", Toast.LENGTH_SHORT).show()
+                                            onSuccess = { msg ->
+                                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                                 showDeleteDialog = false
                                             },
                                             onError = { err ->

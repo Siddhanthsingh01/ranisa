@@ -4660,10 +4660,11 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
                             subtitle = "Verify your fingerprint to continue.",
                             action = {
                                 viewModel.deleteSellerLedger(
+                                    sellerId = "",
                                     sellerName = ledgerToDeleteName,
-                                    onSuccess = {
+                                    onSuccess = { msg ->
                                         showDeleteLedgerDialog = false
-                                        Toast.makeText(context, "Ledger transactions deleted successfully", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                     },
                                     onError = { error ->
                                         Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
@@ -5447,10 +5448,11 @@ fun BuyerLedgerScreen(navController: NavController, viewModel: RanisaViewModel, 
                             subtitle = "Verify your fingerprint to continue.",
                             action = {
                                 viewModel.deleteBuyerLedger(
+                                    buyerId = "",
                                     buyerName = ledgerToDeleteName,
-                                    onSuccess = {
+                                    onSuccess = { msg ->
                                         showDeleteLedgerDialog = false
-                                        Toast.makeText(context, "Ledger transactions deleted successfully", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                     },
                                     onError = { error ->
                                         Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
@@ -10471,10 +10473,11 @@ fun BrokerLedgerScreen(
                     subtitle = "Verify your fingerprint to continue.",
                     action = {
                         viewModel.deleteBrokerLedger(
+                            brokerId = "",
                             brokerName = ledgerToDeleteName,
-                            onSuccess = {
+                            onSuccess = { msg ->
                                 showDeleteLedgerDialog = false
-                                Toast.makeText(context, "Ledger transactions deleted successfully", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                             },
                             onError = { error ->
                                 Toast.makeText(context, error, Toast.LENGTH_SHORT).show()

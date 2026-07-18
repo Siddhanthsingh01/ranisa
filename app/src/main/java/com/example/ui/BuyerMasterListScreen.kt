@@ -394,11 +394,12 @@ fun BuyerMasterListScreen(
                     subtitle = "Verify your fingerprint to continue.",
                     action = {
                         viewModel.deleteBuyerLedger(
+                            buyerId = buyer.buyerId,
                             buyerName = buyer.buyerName,
-                            onSuccess = {
+                            onSuccess = { msg ->
                                 showDeleteDialog = false
                                 scope.launch {
-                                    snackbarHostState.showSnackbar("Ledger transactions deleted successfully")
+                                    snackbarHostState.showSnackbar(msg)
                                 }
                             },
                             onError = { error ->

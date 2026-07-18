@@ -2764,4 +2764,101 @@ object FirebaseService {
             return null
         }
     }
+
+    suspend fun deleteLedgerFromFirebase(
+        context: Context,
+        partyId: String,
+        partyName: String,
+        partyType: String, // "seller", "buyer", "broker"
+        firmName: String
+    ): LedgerDeleteResult {
+        if (!isFirebaseInitialized(context)) {
+            return LedgerDeleteResult(partyId, emptyList(), 0, 0, "Firebase not initialized")
+        }
+        val db = FirebaseFirestore.getInstance()
+        val firmPath = getSanitizedFirmId(firmName)
+        val collectionPaths = mutableListOf<String>()
+        val docsToDelete = mutableListOf<com.google.firebase.firestore.DocumentReference>()
+        
+        try {
+            val contractsCollection = db.collection("firms").document(firmPath).collection("contracts")
+            collectionPaths.add(contractsCollection.path)
+            
+            val contractsSnapshot = when (partyType.lowercase()) {
+                "seller" -> contractsCollection.whereEqualTo("sellerName", partyName).get().await()
+                "buyer" -> contractsCollection.whereEqualTo("buyerName", partyName).get().await()
+                "broker" -> {
+                    if (partyId.isNotBlank()) {
+                        contractsCollection.whereEqualTo("brokerId", partyId).get().await()
+                    } else {
+                        contractsCollection.whereEqualTo("brokerName", partyName).get().await()
+                    }
+                }
+                else -> throw IllegalArgumentException("Invalid partyType: $partyType")
+            }
+            
+            for (doc in contractsSnapshot.documents) {
+                docsToDelete.add(doc.reference)
+            }
+            
+            if (partyType.lowercase() == "seller" || partyType.lowercase() == "buyer") {
+                val paymentsCollection = db.collection("firms").document(firmPath).collection("payments")
+                collectionPaths.add(paymentsCollection.path)
+                val paymentsSnapshot = when (partyType.lowercase()) {
+                    "seller" -> paymentsCollection.whereEqualTo("sellerName", partyName).get().await()
+                    "buyer" -> paymentsCollection.whereEqualTo("buyerName", partyName).get().await()
+                    else -> throw IllegalArgumentException()
+                }
+                for (doc in paymentsSnapshot.documents) {
+                    docsToDelete.add(doc.reference)
+                }
+            }
+            
+            val documentsFound = docsToDelete.size
+            if (documentsFound == 0) {
+                val res = LedgerDeleteResult(partyId, collectionPaths, 0, 0, null)
+                Log.i("LedgerDelete", "Party ID: $partyId")
+                Log.i("LedgerDelete", "Collection path: $collectionPaths")
+                Log.i("LedgerDelete", "Documents found: 0")
+                Log.i("LedgerDelete", "Documents deleted: 0")
+                return res
+            }
+            
+            var deletedCount = 0
+            val chunks = docsToDelete.chunked(500)
+            for (chunk in chunks) {
+                val batch = db.batch()
+                for (docRef in chunk) {
+                    batch.delete(docRef)
+                }
+                batch.commit().await()
+                deletedCount += chunk.size
+            }
+            
+            val res = LedgerDeleteResult(partyId, collectionPaths, documentsFound, deletedCount, null)
+            Log.i("LedgerDelete", "Party ID: $partyId")
+            Log.i("LedgerDelete", "Collection path: $collectionPaths")
+            Log.i("LedgerDelete", "Documents found: $documentsFound")
+            Log.i("LedgerDelete", "Documents deleted: $deletedCount")
+            return res
+        } catch (e: Exception) {
+            val errMsg = e.message ?: "Unknown Firestore error"
+            Log.e("LedgerDelete", "Firestore error during ledger deletion", e)
+            val res = LedgerDeleteResult(partyId, collectionPaths, docsToDelete.size, 0, errMsg)
+            Log.i("LedgerDelete", "Party ID: $partyId")
+            Log.i("LedgerDelete", "Collection path: $collectionPaths")
+            Log.i("LedgerDelete", "Documents found: ${docsToDelete.size}")
+            Log.i("LedgerDelete", "Documents deleted: 0")
+            Log.e("LedgerDelete", "Firestore errors: $errMsg")
+            return res
+        }
+    }
 }
+
+data class LedgerDeleteResult(
+    val partyId: String,
+    val collectionPaths: List<String>,
+    val documentsFound: Int,
+    val documentsDeleted: Int,
+    val error: String? = null
+)
