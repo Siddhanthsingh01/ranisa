@@ -27,6 +27,84 @@ import java.util.Locale
 
 object PdfGenerator {
 
+    data class BrokerageFirmProfile(
+        val id: String,
+        val name: String,
+        val title: String,
+        val subtitle: String = "CANVASSING AGENT",
+        val jurisdiction: String = "Subject to Raichur Jurisdiction",
+        val topMantra: String = "\"SRI GANESHAYA NAMAH\"",
+        val leftMantra: String,
+        val cellText1: String,
+        val cellText2: String = "",
+        val address: String = "Shayamrao Complex, Beside Vaikuntam Complex Gunj Road, RAICHUR - 584102. (Karnataka)",
+        val gstNo: String = "",
+        val sigLabel: String
+    )
+
+    fun getFirmProfile(context: Context, rawFirmName: String?): BrokerageFirmProfile {
+        val prefs = context.getSharedPreferences("ranisa_prefs", Context.MODE_PRIVATE)
+        val activeFirmName = prefs.getString("current_firm_name", "Lalit Rice Broker") ?: "Lalit Rice Broker"
+
+        val target = rawFirmName?.trim()?.ifBlank { activeFirmName } ?: activeFirmName
+
+        val isKrishna = target.contains("Krishna", ignoreCase = true) || target.contains("f002", ignoreCase = true)
+        val isLalit = target.contains("Lalit", ignoreCase = true) || target.contains("f001", ignoreCase = true)
+
+        return when {
+            isKrishna -> {
+                BrokerageFirmProfile(
+                    id = "F002",
+                    name = "Hare Krishna Rice Broker",
+                    title = "HARE KRISHNA RICE BROKER",
+                    subtitle = "CANVASSING AGENT",
+                    jurisdiction = "Subject to Raichur Jurisdiction",
+                    topMantra = "\"SRI GANESHAYA NAMAH\"",
+                    leftMantra = "\"HARE KRISHNA\"",
+                    cellText1 = "Cell : 98866 12345(H)",
+                    cellText2 = "94484 55041(P)",
+                    address = "Shayamrao Complex, Beside Vaikuntam Complex Gunj Road, RAICHUR - 584102. (Karnataka)",
+                    gstNo = prefs.getString("gst_F002", "") ?: "",
+                    sigLabel = "For : HARE KRISHNA RICE BROKER"
+                )
+            }
+            isLalit -> {
+                BrokerageFirmProfile(
+                    id = "F001",
+                    name = "Lalit Rice Broker",
+                    title = "LALIT RICE BROKER",
+                    subtitle = "CANVASSING AGENT",
+                    jurisdiction = "Subject to Raichur Jurisdiction",
+                    topMantra = "\"SRI GANESHAYA NAMAH\"",
+                    leftMantra = "\"SRI KHANDERI MATAJI NAMAH\"",
+                    cellText1 = "Cell : 92432 34814(L)",
+                    cellText2 = "94484 55041(P)",
+                    address = "Shayamrao Complex, Beside Vaikuntam Complex Gunj Road, RAICHUR - 584102. (Karnataka)",
+                    gstNo = prefs.getString("gst_F001", "") ?: "",
+                    sigLabel = "For : LALIT RICE BROKER"
+                )
+            }
+            else -> {
+                val cleanTitle = target.uppercase()
+                val formattedTitle = if (cleanTitle.contains("BROKER")) cleanTitle else "$cleanTitle RICE BROKER"
+                BrokerageFirmProfile(
+                    id = target,
+                    name = target,
+                    title = formattedTitle,
+                    subtitle = "CANVASSING AGENT",
+                    jurisdiction = "Subject to Raichur Jurisdiction",
+                    topMantra = "\"SRI GANESHAYA NAMAH\"",
+                    leftMantra = "\"SRI GANESHAYA NAMAH\"",
+                    cellText1 = "Cell : 94484 55041",
+                    cellText2 = "",
+                    address = "Shayamrao Complex, Beside Vaikuntam Complex Gunj Road, RAICHUR - 584102. (Karnataka)",
+                    gstNo = "",
+                    sigLabel = "For : $formattedTitle"
+                )
+            }
+        }
+    }
+
     fun generatePaymentPdf(context: Context, payment: Payment, bill: ContractBill): File {
         val pdfDocument = PdfDocument()
         val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
@@ -44,46 +122,43 @@ object PdfGenerator {
         paint.strokeWidth = 0.5f
         canvas.drawRect(24f, 24f, 571f, 818f, paint)
 
+        val profile = getFirmProfile(context, payment.firm.ifBlank { bill.firmName })
+
         // 2. Header info
         paint.style = Paint.Style.FILL
         paint.textSize = 8f
         paint.isFakeBoldText = true
         
         // Subject to Jurisdiction
-        canvas.drawText("Subject to Raichur Jurisdiction", (595f - paint.measureText("Subject to Raichur Jurisdiction")) / 2, 38f, paint)
+        canvas.drawText(profile.jurisdiction, (595f - paint.measureText(profile.jurisdiction)) / 2, 38f, paint)
         
         // Top invocation mantras
-        val topLantra = "\"SRI GANESHAYA NAMAH\""
-        canvas.drawText(topLantra, (595f - paint.measureText(topLantra)) / 2, 50f, paint)
+        canvas.drawText(profile.topMantra, (595f - paint.measureText(profile.topMantra)) / 2, 50f, paint)
         
-        val leftMantra = "\"SRI KHANDERI MATAJI NAMAH\" \"HARE KRISHNA\""
-        canvas.drawText(leftMantra, 30f, 62f, paint)
+        canvas.drawText(profile.leftMantra, 30f, 62f, paint)
         
         paint.isFakeBoldText = false
-        val cellText1 = "Cell : 92432 34814(L)"
-        val cellText2 = "94484 55041(P)"
-        canvas.drawText(cellText1, 565f - paint.measureText(cellText1), 50f, paint)
-        canvas.drawText(cellText2, 565f - paint.measureText(cellText2), 62f, paint)
+        canvas.drawText(profile.cellText1, 565f - paint.measureText(profile.cellText1), 50f, paint)
+        if (profile.cellText2.isNotBlank()) {
+            canvas.drawText(profile.cellText2, 565f - paint.measureText(profile.cellText2), 62f, paint)
+        }
 
         // Firm Main Title
         paint.textSize = 24f
         paint.isFakeBoldText = true
-        val isHareKrishna = payment.firm.uppercase().contains("HARE KRISHNA")
-        val mainTitle = if (isHareKrishna) "HARE KRISHNA RICE BROKER" else "LALIT RICE BROKER"
+        val mainTitle = profile.title
         val titleWidth = paint.measureText(mainTitle)
         canvas.drawText(mainTitle, (595f - titleWidth) / 2, 88f, paint)
 
         // Subtitle
         paint.textSize = 10f
         paint.isFakeBoldText = true
-        val subTitle = "CANVASSING AGENT"
-        canvas.drawText(subTitle, (595f - paint.measureText(subTitle)) / 2, 102f, paint)
+        canvas.drawText(profile.subtitle, (595f - paint.measureText(profile.subtitle)) / 2, 102f, paint)
 
         // Address
         paint.textSize = 8.5f
         paint.isFakeBoldText = false
-        val addressLine = "Shayamrao Complex, Beside Vaikuntam Complex Gunj Road, RAICHUR - 584102. (Karnataka)"
-        canvas.drawText(addressLine, (595f - paint.measureText(addressLine)) / 2, 115f, paint)
+        canvas.drawText(profile.address, (595f - paint.measureText(profile.address)) / 2, 115f, paint)
 
         // Payment Receipt Oval Banner
         paint.strokeWidth = 1f
@@ -230,7 +305,7 @@ object PdfGenerator {
         paint.isFakeBoldText = true
         paint.textSize = 10f
         canvas.drawText("Receiver's Signature", 40f, y, paint)
-        canvas.drawText("For ${if (isHareKrishna) "HARE KRISHNA" else "LALIT"} RICE BROKER", 360f, y, paint)
+        canvas.drawText(profile.sigLabel, 360f, y, paint)
         
         paint.isFakeBoldText = false
         canvas.drawText("(Authorized Signatory)", 390f, y + 25f, paint)
@@ -267,46 +342,43 @@ object PdfGenerator {
         paint.strokeWidth = 0.5f
         canvas.drawRect(24f, 24f, 571f, 818f, paint)
 
+        val profile = getFirmProfile(context, bill.firmName)
+
         // 2. Header info
         paint.style = Paint.Style.FILL
         paint.textSize = 8f
         paint.isFakeBoldText = true
         
         // Subject to Jurisdiction
-        canvas.drawText("Subject to Raichur Jurisdiction", (595f - paint.measureText("Subject to Raichur Jurisdiction")) / 2, 38f, paint)
+        canvas.drawText(profile.jurisdiction, (595f - paint.measureText(profile.jurisdiction)) / 2, 38f, paint)
         
         // Top invocation mantras
-        val topLantra = "\"SRI GANESHAYA NAMAH\""
-        canvas.drawText(topLantra, (595f - paint.measureText(topLantra)) / 2, 50f, paint)
+        canvas.drawText(profile.topMantra, (595f - paint.measureText(profile.topMantra)) / 2, 50f, paint)
         
-        val leftMantra = "\"SRI KHANDERI MATAJI NAMAH\" \"HARE KRISHNA\""
-        canvas.drawText(leftMantra, 30f, 62f, paint)
+        canvas.drawText(profile.leftMantra, 30f, 62f, paint)
         
         paint.isFakeBoldText = false
-        val cellText1 = "Cell : 92432 34814(L)"
-        val cellText2 = "94484 55041(P)"
-        canvas.drawText(cellText1, 565f - paint.measureText(cellText1), 50f, paint)
-        canvas.drawText(cellText2, 565f - paint.measureText(cellText2), 62f, paint)
+        canvas.drawText(profile.cellText1, 565f - paint.measureText(profile.cellText1), 50f, paint)
+        if (profile.cellText2.isNotBlank()) {
+            canvas.drawText(profile.cellText2, 565f - paint.measureText(profile.cellText2), 62f, paint)
+        }
 
         // Firm Main Title
         paint.textSize = 24f
         paint.isFakeBoldText = true
-        val isHareKrishna = bill.firmName.uppercase().contains("HARE KRISHNA")
-        val mainTitle = if (isHareKrishna) "HARE KRISHNA RICE BROKER" else "LALIT RICE BROKER"
+        val mainTitle = profile.title
         val titleWidth = paint.measureText(mainTitle)
         canvas.drawText(mainTitle, (595f - titleWidth) / 2, 88f, paint)
 
         // Subtitle
         paint.textSize = 10f
         paint.isFakeBoldText = true
-        val subTitle = "CANVASSING AGENT"
-        canvas.drawText(subTitle, (595f - paint.measureText(subTitle)) / 2, 102f, paint)
+        canvas.drawText(profile.subtitle, (595f - paint.measureText(profile.subtitle)) / 2, 102f, paint)
 
         // Address
         paint.textSize = 8.5f
         paint.isFakeBoldText = false
-        val addressLine = "Shayamrao Complex, Beside Vaikuntam Complex Gunj Road, RAICHUR - 584102. (Karnataka)"
-        canvas.drawText(addressLine, (595f - paint.measureText(addressLine)) / 2, 115f, paint)
+        canvas.drawText(profile.address, (595f - paint.measureText(profile.address)) / 2, 115f, paint)
 
         // Contract Form Oval Banner
         paint.strokeWidth = 1f
@@ -540,9 +612,9 @@ object PdfGenerator {
         val creditText = if (bill.creditDays > 0) bill.creditDays.toString() else "N/A"
         canvas.drawText(creditText, 200f, sigTop + 40f, paint)
 
-        // Cell 3: For Lalit Rice Broker
+        // Cell 3: Authorized Signatory
         paint.isFakeBoldText = true
-        val sigForLabel = "For : $mainTitle"
+        val sigForLabel = profile.sigLabel
         canvas.drawText(sigForLabel, 335f, sigTop + 15f, paint)
         
         // Authorized brokerage signature placeholder
@@ -906,18 +978,20 @@ object PdfGenerator {
             
             var y = topMargin
             
+            val profile = getFirmProfile(context, firmName)
+            
             // Draw Main Header
             fun drawHeaderBlock(c: Canvas) {
                 paint.color = Color.parseColor("#2E1A47") // Deep dark purple title
                 paint.style = Paint.Style.FILL
                 paint.textSize = titleSize
                 paint.isFakeBoldText = true
-                c.drawText(firmName.uppercase(), leftMargin, y + 15f, paint)
+                c.drawText(profile.title, leftMargin, y + 15f, paint)
                 
                 paint.color = Color.DKGRAY
                 paint.textSize = labelSize
                 paint.isFakeBoldText = false
-                c.drawText("CANVASSING AGENT", leftMargin, y + 28f, paint)
+                c.drawText(profile.subtitle, leftMargin, y + 28f, paint)
                 
                 // Top-right info
                 paint.color = Color.BLACK
@@ -945,7 +1019,7 @@ object PdfGenerator {
                 paint.style = Paint.Style.FILL
                 paint.textSize = labelSize
                 paint.isFakeBoldText = true
-                c.drawText("$firmName - $ledgerName (${ledgerType.uppercase()})", leftMargin, y + 12f, paint)
+                c.drawText("${profile.title} - $ledgerName (${ledgerType.uppercase()})", leftMargin, y + 12f, paint)
                 
                 paint.color = Color.DKGRAY
                 paint.textSize = textDetailSize - 1f

@@ -9,11 +9,22 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -196,18 +207,19 @@ fun RanisaApp(
                             icon = icon,
                             selected = isSelected,
                             onClick = {
-                                if (route == "home") {
-                                    navController.navigate("home") {
-                                        popUpTo("home") {
-                                            inclusive = false
+                                if (currentRoute != route) {
+                                    if (route == "home") {
+                                        navController.navigate("home") {
+                                            popUpTo("home") {
+                                                inclusive = false
+                                            }
+                                            launchSingleTop = true
                                         }
-                                        launchSingleTop = true
-                                    }
-                                } else {
-                                    navController.navigate(route) {
-                                        popUpTo("home") { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
+                                    } else {
+                                        navController.navigate(route) {
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
                                     }
                                 }
                                 scope.launch { drawerState.close() }
@@ -259,15 +271,35 @@ fun RanisaApp(
                             }
                         },
                         navigationIcon = {
-                            IconButton(
-                                onClick = { scope.launch { drawerState.open() } },
-                                modifier = Modifier.testTag("menu_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Menu, 
-                                    contentDescription = "Open Navigation Menu",
-                                    tint = Color.White
-                                )
+                            if (currentRoute == "home") {
+                                IconButton(
+                                    onClick = { scope.launch { drawerState.open() } },
+                                    modifier = Modifier.testTag("menu_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Menu, 
+                                        contentDescription = "Open Navigation Menu",
+                                        tint = Color.White
+                                    )
+                                }
+                            } else {
+                                IconButton(
+                                    onClick = {
+                                        if (!navController.popBackStack()) {
+                                            navController.navigate("home") {
+                                                popUpTo("home") { inclusive = false }
+                                                launchSingleTop = true
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.testTag("top_bar_back_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack, 
+                                        contentDescription = "Back",
+                                        tint = Color.White
+                                    )
+                                }
                             }
                         },
                         actions = {
@@ -316,18 +348,19 @@ fun RanisaApp(
                             NavigationBarItem(
                                 selected = isSelected,
                                 onClick = {
-                                    if (navRoute == "home") {
-                                        navController.navigate("home") {
-                                            popUpTo("home") {
-                                                inclusive = false
+                                    if (!isSelected) {
+                                        if (navRoute == "home") {
+                                            navController.navigate("home") {
+                                                popUpTo("home") {
+                                                    inclusive = false
+                                                }
+                                                launchSingleTop = true
                                             }
-                                            launchSingleTop = true
-                                        }
-                                    } else {
-                                        navController.navigate(navRoute) {
-                                            popUpTo("home") { saveState = true }
-                                            launchSingleTop = true
-                                            restoreState = true
+                                        } else {
+                                            navController.navigate(navRoute) {
+                                                launchSingleTop = true
+                                                restoreState = true
+                                            }
                                         }
                                     }
                                 },
@@ -3731,6 +3764,9 @@ fun PdfPreviewDialog(
     val context = LocalContext.current
     var bitmaps by remember { mutableStateOf<List<android.graphics.Bitmap>>(emptyList()) }
     var scale by remember { mutableStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+    var containerSize by remember { mutableStateOf(IntSize.Zero) }
+    var contentSize by remember { mutableStateOf(IntSize.Zero) }
 
     LaunchedEffect(file) {
         val list = mutableListOf<android.graphics.Bitmap>()
@@ -3758,6 +3794,31 @@ fun PdfPreviewDialog(
         bitmaps = list
     }
 
+    fun clampOffset(
+        currentOffset: Offset,
+        currentScale: Float,
+        container: IntSize,
+        content: IntSize
+    ): Offset {
+        if (currentScale <= 1.001f || container.width <= 0 || container.height <= 0) {
+            return Offset.Zero
+        }
+        val effW = maxOf(container.width.toFloat(), content.width.toFloat())
+        val effH = maxOf(container.height.toFloat(), content.height.toFloat())
+
+        val maxOffsetX = maxOf(0f, (effW * currentScale - container.width) / 2f)
+        val maxOffsetY = maxOf(0f, (effH * currentScale - container.height) / 2f)
+
+        return Offset(
+            x = currentOffset.x.coerceIn(-maxOffsetX, maxOffsetX),
+            y = currentOffset.y.coerceIn(-maxOffsetY, maxOffsetY)
+        )
+    }
+
+    val activeOffset = remember(scale, offset, containerSize, contentSize) {
+        clampOffset(offset, scale, containerSize, contentSize)
+    }
+
     Dialog(
         onDismissRequest = onClose,
         properties = androidx.compose.ui.window.DialogProperties(
@@ -3776,14 +3837,29 @@ fun PdfPreviewDialog(
                         }
                     },
                     actions = {
-                        IconButton(onClick = { if (scale > 0.5f) scale -= 0.25f }) {
+                        IconButton(onClick = {
+                            if (scale > 0.5f) {
+                                val nextScale = maxOf(0.5f, scale - 0.25f)
+                                scale = nextScale
+                                if (nextScale <= 1.001f) {
+                                    offset = Offset.Zero
+                                }
+                            }
+                        }) {
                             Icon(Icons.Default.Remove, contentDescription = "Zoom Out")
                         }
                         Text("${(scale * 100).toInt()}%", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 4.dp))
-                        IconButton(onClick = { if (scale < 3.0f) scale += 0.25f }) {
+                        IconButton(onClick = {
+                            if (scale < 4.0f) {
+                                scale = minOf(4.0f, scale + 0.25f)
+                            }
+                        }) {
                             Icon(Icons.Default.Add, contentDescription = "Zoom In")
                         }
-                        IconButton(onClick = { scale = 1f }) {
+                        IconButton(onClick = {
+                            scale = 1f
+                            offset = Offset.Zero
+                        }) {
                             Icon(Icons.Default.Refresh, contentDescription = "Reset Zoom")
                         }
                     },
@@ -3837,44 +3913,86 @@ fun PdfPreviewDialog(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
-                    .background(Color.Gray.copy(alpha = 0.2f)),
+                    .background(Color(0xFFE2E8F0))
+                    .clipToBounds()
+                    .onSizeChanged { containerSize = it }
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            do {
+                                val event = awaitPointerEvent()
+                                val canceled = event.changes.any { it.isConsumed }
+                                if (!canceled) {
+                                    val zoomChange = event.calculateZoom()
+                                    val panChange = event.calculatePan()
+                                    val pointerCount = event.changes.count { it.pressed }
+
+                                    if (scale > 1.001f) {
+                                        event.changes.forEach { it.consume() }
+
+                                        var newScale = scale
+                                        if (zoomChange != 1f) {
+                                            newScale = (scale * zoomChange).coerceIn(0.5f, 4.0f)
+                                            scale = newScale
+                                        }
+
+                                        val newUnclampedOffset = offset + panChange
+                                        offset = clampOffset(newUnclampedOffset, newScale, containerSize, contentSize)
+                                    } else {
+                                        if (pointerCount >= 2 && zoomChange != 1f) {
+                                            val newScale = (scale * zoomChange).coerceIn(0.5f, 4.0f)
+                                            scale = newScale
+                                            if (newScale > 1.001f) {
+                                                event.changes.forEach { it.consume() }
+                                                val newUnclampedOffset = offset + panChange
+                                                offset = clampOffset(newUnclampedOffset, newScale, containerSize, contentSize)
+                                            }
+                                        }
+                                    }
+                                }
+                            } while (event.changes.any { it.pressed })
+                        }
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 if (bitmaps.isEmpty()) {
                     CircularProgressIndicator()
                 } else {
-                    LazyColumn(
+                    Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .graphicsLayer(
+                                scaleX = scale,
+                                scaleY = scale,
+                                translationX = activeOffset.x,
+                                translationY = activeOffset.y,
+                                transformOrigin = TransformOrigin.Center
+                            ),
+                        contentAlignment = Alignment.TopCenter
                     ) {
-                        items(bitmaps) { bitmap ->
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth(0.95f)
-                                    .graphicsLayer(
-                                        scaleX = scale,
-                                        scaleY = scale,
-                                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .onSizeChanged { contentSize = it }
+                                .padding(16.dp),
+                            userScrollEnabled = scale <= 1.001f,
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            items(bitmaps) { bitmap ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(0.95f),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                                    shape = RoundedCornerShape(4.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                                ) {
+                                    Image(
+                                        bitmap = bitmap.asImageBitmap(),
+                                        contentDescription = "PDF Page",
+                                        modifier = Modifier.fillMaxWidth(),
+                                        contentScale = ContentScale.FillWidth
                                     )
-                                    .pointerInput(Unit) {
-                                        detectTransformGestures { _, _, zoom, _ ->
-                                            val newScale = scale * zoom
-                                            scale = newScale.coerceIn(0.5f, 3.0f)
-                                        }
-                                    },
-                                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                                shape = RoundedCornerShape(4.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color.White)
-                            ) {
-                                Image(
-                                    bitmap = bitmap.asImageBitmap(),
-                                    contentDescription = "PDF Page",
-                                    modifier = Modifier.fillMaxWidth(),
-                                    contentScale = ContentScale.FillWidth
-                                )
+                                }
                             }
                         }
                     }
@@ -3899,10 +4017,15 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
     val rtdbFullBuyers by viewModel.rtdbFullBuyers.collectAsState()
 
     var selectedSeller by remember { mutableStateOf(preselectedSeller) }
+    BackHandler(enabled = selectedSeller.isNotBlank()) {
+        selectedSeller = ""
+    }
     var expandedBillId by remember { mutableStateOf<Int?>(null) }
     var previewPdfFile by remember { mutableStateOf<java.io.File?>(null) }
     var showPdfPreview by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    var sortOptionSellerLedger by rememberSaveable { mutableStateOf("New First") }
 
     var showEditPaymentDialog by remember { mutableStateOf(false) }
     var editingBill by remember { mutableStateOf<ContractBill?>(null) }
@@ -4115,37 +4238,49 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
                     )
                 }
 
-                var showShareSheet by remember { mutableStateOf(false) }
-                OutlinedButton(
-                    onClick = { showShareSheet = true },
-                    shape = RoundedCornerShape(24.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.padding(end = 4.dp).testTag("share_full_seller_ledger_button")
-                ) {
-                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Share Full Ledger", fontSize = 11.sp)
-                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    var showShareSheet by remember { mutableStateOf(false) }
+                    OutlinedButton(
+                        onClick = { showShareSheet = true },
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            contentColor = MaterialTheme.colorScheme.primary
+                        ),
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier
+                            .size(42.dp)
+                            .testTag("share_full_seller_ledger_button")
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = "Share Full Ledger", modifier = Modifier.size(20.dp))
+                    }
 
-                if (showShareSheet) {
-                    FullLedgerShareSheet(
-                        ledgerName = selectedSeller,
-                        ledgerType = "seller",
-                        bills = bills.filter { it.sellerName == selectedSeller },
-                        payments = payments,
-                        onDismissRequest = { showShareSheet = false }
+                    LedgerSortFilterButton(
+                        selectedOption = sortOptionSellerLedger,
+                        onOptionSelected = { sortOptionSellerLedger = it }
                     )
+
+                    if (showShareSheet) {
+                        FullLedgerShareSheet(
+                            ledgerName = selectedSeller,
+                            ledgerType = "seller",
+                            bills = bills.filter { it.sellerName == selectedSeller },
+                            payments = payments,
+                            onDismissRequest = { showShareSheet = false }
+                        )
+                    }
                 }
             }
 
-            val sellerBills = remember(bills, selectedSeller, searchQuery) {
-                bills.filter { it.sellerName == selectedSeller }.filter { bill ->
+            val sellerBills = remember(bills, selectedSeller, searchQuery, sortOptionSellerLedger) {
+                val filtered = bills.filter { it.sellerName == selectedSeller }.filter { bill ->
                     searchQuery.isBlank() ||
                     bill.billNumber.contains(searchQuery, ignoreCase = true) ||
                     bill.buyerName.contains(searchQuery, ignoreCase = true) ||
                     bill.date.contains(searchQuery, ignoreCase = true)
                 }
+                sortContractBills(filtered, sortOptionSellerLedger)
             }
 
             // Dynamic Calculations & Summary Card
@@ -4170,11 +4305,6 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
                 }
             }
 
-            var pageLimit by remember { mutableStateOf(500) }
-            val paginatedBills = remember(sellerBills, pageLimit) {
-                sellerBills.take(pageLimit)
-            }
-
             // Scrollable 15-column Grid simulating the physical register
             Box(modifier = Modifier.weight(1f).border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(8.dp))) {
                 Column(modifier = Modifier.horizontalScroll(rememberScrollState())) {
@@ -4186,7 +4316,7 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         val headers = listOf(
-                            "Date" to 90, "Bill No" to 80, "Party Name" to 150, "Place" to 90,
+                            "S.N." to 50, "Date" to 90, "Bill No" to 80, "Party Name" to 150, "Place" to 90,
                             "Freight" to 80, "Rate" to 70, "Qtls" to 70, 
                             "BILL AMT" to 100, "Received" to 100, "Discount" to 80, "Broker Name" to 120, "Commission" to 90,
                             "Remark Amt" to 100, "Remark" to 150, "Balance AMT" to 100, "Status" to 100, "EB" to 100, "Action" to 180
@@ -4205,7 +4335,7 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
                     HorizontalDivider()
 
                     LazyColumn(modifier = Modifier.weight(1f)) {
-                        items(paginatedBills) { bill ->
+                        itemsIndexed(sellerBills, key = { _, bill -> bill.id }) { index, bill ->
                             val isExpanded = expandedBillId == bill.id
                             val billPayments = remember(payments, bill.billNumber) {
                                 payments.filter { p ->
@@ -4224,6 +4354,7 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
                                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    RegisterField("${index + 1}", 50)
                                     RegisterField(bill.date, 90)
                                     RegisterField(
                                         text = bill.billNumber,
@@ -4541,24 +4672,6 @@ fun SellerLedgerScreen(navController: NavController, viewModel: RanisaViewModel,
                             }
                             HorizontalDivider()
                         }
-
-                        if (sellerBills.size > pageLimit) {
-                            item {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(8.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Button(
-                                        onClick = { pageLimit += 500 },
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) {
-                                        Text("Load More (Showing $pageLimit of ${sellerBills.size})", fontSize = 12.sp)
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -4712,10 +4825,15 @@ fun BuyerLedgerScreen(navController: NavController, viewModel: RanisaViewModel, 
     val rtdbFullBuyers by viewModel.rtdbFullBuyers.collectAsState()
 
     var selectedBuyer by remember { mutableStateOf(preselectedBuyer) }
+    BackHandler(enabled = selectedBuyer.isNotBlank()) {
+        selectedBuyer = ""
+    }
     var expandedBillId by remember { mutableStateOf<Int?>(null) }
     var previewPdfFile by remember { mutableStateOf<java.io.File?>(null) }
     var showPdfPreview by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    var sortOptionBuyerLedger by rememberSaveable { mutableStateOf("New First") }
 
     var showEditPaymentDialog by remember { mutableStateOf(false) }
     var editingBill by remember { mutableStateOf<ContractBill?>(null) }
@@ -4929,37 +5047,49 @@ fun BuyerLedgerScreen(navController: NavController, viewModel: RanisaViewModel, 
                     )
                 }
 
-                var showShareSheet by remember { mutableStateOf(false) }
-                OutlinedButton(
-                    onClick = { showShareSheet = true },
-                    shape = RoundedCornerShape(24.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.padding(end = 4.dp).testTag("share_full_buyer_ledger_button")
-                ) {
-                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Share Full Ledger", fontSize = 11.sp)
-                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    var showShareSheet by remember { mutableStateOf(false) }
+                    OutlinedButton(
+                        onClick = { showShareSheet = true },
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            contentColor = MaterialTheme.colorScheme.primary
+                        ),
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier
+                            .size(42.dp)
+                            .testTag("share_full_buyer_ledger_button")
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = "Share Full Ledger", modifier = Modifier.size(20.dp))
+                    }
 
-                if (showShareSheet) {
-                    FullLedgerShareSheet(
-                        ledgerName = selectedBuyer,
-                        ledgerType = "buyer",
-                        bills = bills.filter { it.buyerName == selectedBuyer },
-                        payments = payments,
-                        onDismissRequest = { showShareSheet = false }
+                    LedgerSortFilterButton(
+                        selectedOption = sortOptionBuyerLedger,
+                        onOptionSelected = { sortOptionBuyerLedger = it }
                     )
+
+                    if (showShareSheet) {
+                        FullLedgerShareSheet(
+                            ledgerName = selectedBuyer,
+                            ledgerType = "buyer",
+                            bills = bills.filter { it.buyerName == selectedBuyer },
+                            payments = payments,
+                            onDismissRequest = { showShareSheet = false }
+                        )
+                    }
                 }
             }
 
-            val buyerBills = remember(bills, selectedBuyer, searchQuery) {
-                bills.filter { it.buyerName == selectedBuyer }.filter { bill ->
+            val buyerBills = remember(bills, selectedBuyer, searchQuery, sortOptionBuyerLedger) {
+                val filtered = bills.filter { it.buyerName == selectedBuyer }.filter { bill ->
                     searchQuery.isBlank() ||
                     bill.billNumber.contains(searchQuery, ignoreCase = true) ||
                     bill.sellerName.contains(searchQuery, ignoreCase = true) ||
                     bill.date.contains(searchQuery, ignoreCase = true)
                 }
+                sortContractBills(filtered, sortOptionBuyerLedger)
             }
 
             // Dynamic Calculations & Summary Card
@@ -4995,7 +5125,7 @@ fun BuyerLedgerScreen(navController: NavController, viewModel: RanisaViewModel, 
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         val headers = listOf(
-                            "Date" to 90, "Bill No" to 80, "Party Name" to 150, "Place" to 90,
+                            "S.N." to 50, "Date" to 90, "Bill No" to 80, "Party Name" to 150, "Place" to 90,
                             "Freight" to 80, "Rate" to 70, "Qtls" to 70, 
                             "BILL AMT" to 100, "Received" to 100, "Discount" to 80, "Broker Name" to 120, "Commission" to 90,
                             "Remark Amt" to 100, "Remark" to 150, "Balance AMT" to 100, "Status" to 100, "Action" to 180
@@ -5014,7 +5144,7 @@ fun BuyerLedgerScreen(navController: NavController, viewModel: RanisaViewModel, 
                     HorizontalDivider()
 
                     LazyColumn(modifier = Modifier.weight(1f)) {
-                        items(buyerBills) { bill ->
+                        itemsIndexed(buyerBills, key = { _, bill -> bill.id }) { index, bill ->
                             val isExpanded = expandedBillId == bill.id
                             val billPayments = remember(payments, bill.billNumber) {
                                 payments.filter { p ->
@@ -5033,6 +5163,7 @@ fun BuyerLedgerScreen(navController: NavController, viewModel: RanisaViewModel, 
                                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    RegisterField("${index + 1}", 50)
                                     RegisterField(bill.date, 90)
                                     RegisterField(
                                         text = bill.billNumber,
@@ -5484,6 +5615,119 @@ fun BuyerLedgerScreen(navController: NavController, viewModel: RanisaViewModel, 
     }
 }
 
+fun compareBillNumbers(num1: String, num2: String): Int {
+    val n1 = num1.trim()
+    val n2 = num2.trim()
+    val v1 = n1.toLongOrNull() ?: n1.filter { it.isDigit() }.toLongOrNull()
+    val v2 = n2.toLongOrNull() ?: n2.filter { it.isDigit() }.toLongOrNull()
+    return if (v1 != null && v2 != null) {
+        v1.compareTo(v2)
+    } else {
+        n1.compareTo(n2, ignoreCase = true)
+    }
+}
+
+fun sortContractBills(bills: List<ContractBill>, sortOption: String): List<ContractBill> {
+    return when (sortOption) {
+        "Old First" -> bills.sortedWith { b1, b2 ->
+            val dateCmp = b1.date.compareTo(b2.date)
+            if (dateCmp != 0) dateCmp else compareBillNumbers(b1.billNumber, b2.billNumber)
+        }
+        "Ascending" -> bills.sortedWith { b1, b2 ->
+            compareBillNumbers(b1.billNumber, b2.billNumber)
+        }
+        "Descending" -> bills.sortedWith { b1, b2 ->
+            compareBillNumbers(b2.billNumber, b1.billNumber)
+        }
+        else -> { // "New First" (default)
+            bills.sortedWith { b1, b2 ->
+                val dateCmp = b2.date.compareTo(b1.date)
+                if (dateCmp != 0) dateCmp else compareBillNumbers(b2.billNumber, b1.billNumber)
+            }
+        }
+    }
+}
+
+@Composable
+fun LedgerSortFilterButton(
+    selectedOption: String,
+    onOptionSelected: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    val options = listOf(
+        "Old First" to "(Oldest Date → Newest Date)",
+        "New First" to "(Newest Date → Oldest Date)",
+        "Ascending" to "(Bill Number A → Z / Lowest → Highest)",
+        "Descending" to "(Bill Number Z → A / Highest → Lowest)"
+    )
+
+    Box {
+        OutlinedButton(
+            onClick = { expanded = true },
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.primary
+            ),
+            contentPadding = PaddingValues(0.dp),
+            modifier = Modifier
+                .size(42.dp)
+                .testTag("sort_filter_ledger_button")
+        ) {
+            Icon(Icons.Default.FilterList, contentDescription = "Sort / Filter", modifier = Modifier.size(20.dp))
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier
+                .widthIn(min = 270.dp)
+                .background(MaterialTheme.colorScheme.surface)
+        ) {
+            options.forEach { (title, subtitle) ->
+                val isSelected = (selectedOption == title)
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = title,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 13.sp
+                                )
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Selected",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = subtitle,
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    onClick = {
+                        onOptionSelected(title)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun RegisterField(
     text: String,
@@ -5591,6 +5835,9 @@ fun PaymentListScreen(navController: NavController, viewModel: RanisaViewModel) 
 
     // Screen State
     var selectedPartyName by remember { mutableStateOf<String?>(null) }
+    BackHandler(enabled = selectedPartyName != null) {
+        selectedPartyName = null
+    }
 
     // Dialog state for Recording Payment
     var showAddDialog by remember { mutableStateOf(false) }
@@ -5619,11 +5866,10 @@ fun PaymentListScreen(navController: NavController, viewModel: RanisaViewModel) 
 
     // Party Ledger Screen State
     var searchQueryPartyLedger by remember { mutableStateOf("") }
-    var sortOptionPartyLedger by remember { mutableStateOf("Newest First") }
+    var sortOptionPartyLedger by rememberSaveable { mutableStateOf("New First") }
     var filterStatusPartyLedger by remember { mutableStateOf("All") }
     var filterFirmPartyLedger by remember { mutableStateOf("All") }
     var filterDatePartyLedger by remember { mutableStateOf("") }
-    var showAllBillsOfParty by remember { mutableStateOf(false) }
     var isFilterPanelExpanded by remember { mutableStateOf(false) }
 
     // Map bills to their computed totals dynamically
@@ -6200,20 +6446,52 @@ fun PaymentListScreen(navController: NavController, viewModel: RanisaViewModel) 
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.Top
                                 ) {
-                                    Column {
-                                        Text("Latest Bill: #${latestBill?.billNumber ?: "N/A"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text("Latest Date: ${latestBill?.date ?: "N/A"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Column(
+                                        modifier = Modifier.weight(0.44f),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            text = "Bill: #${latestBill?.billNumber ?: "N/A"}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "Date: ${latestBill?.date ?: "N/A"}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
                                     }
-                                    Column(horizontalAlignment = Alignment.End) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column(
+                                        modifier = Modifier.weight(0.56f),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
                                         val displayFirm = when (latestBill?.firmName) {
                                             "F001" -> "Lalit Rice Broker"
                                             "F002" -> "Hare Krishna Rice Broker"
                                             else -> latestBill?.firmName ?: "N/A"
                                         }
-                                        Text("Firm: $displayFirm", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text("Total Bills: $totalBills", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(
+                                            text = "Firm: $displayFirm",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "Total Bills: $totalBills",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
                                     }
                                 }
 
@@ -6271,20 +6549,24 @@ fun PaymentListScreen(navController: NavController, viewModel: RanisaViewModel) 
                     matchesSearch && matchesStatus && matchesFirm && matchesDate
                 }.sortedWith { a, b ->
                     when (sortOptionPartyLedger) {
-                        "Newest First" -> b.first.date.compareTo(a.first.date)
-                        "Oldest First" -> a.first.date.compareTo(b.first.date)
-                        "Due Date (Newest)" -> getDueDateComparable(b.first.date, b.first.creditDays).compareTo(getDueDateComparable(a.first.date, a.first.creditDays))
-                        "Due Date (Oldest)" -> getDueDateComparable(a.first.date, a.first.creditDays).compareTo(getDueDateComparable(b.first.date, b.first.creditDays))
+                        "Old First", "Oldest First" -> {
+                            val dCmp = a.first.date.compareTo(b.first.date)
+                            if (dCmp != 0) dCmp else compareBillNumbers(a.first.billNumber, b.first.billNumber)
+                        }
+                        "Ascending" -> compareBillNumbers(a.first.billNumber, b.first.billNumber)
+                        "Descending" -> compareBillNumbers(b.first.billNumber, a.first.billNumber)
                         "Highest Amount" -> b.first.billAmount.compareTo(a.first.billAmount)
                         "Lowest Amount" -> a.first.billAmount.compareTo(b.first.billAmount)
-                        "Ascending" -> a.first.billNumber.compareTo(b.first.billNumber)
-                        "Descending" -> b.first.billNumber.compareTo(a.first.billNumber)
-                        else -> b.first.date.compareTo(a.first.date)
+                        "Due Date (Newest)" -> getDueDateComparable(b.first.date, b.first.creditDays).compareTo(getDueDateComparable(a.first.date, a.first.creditDays))
+                        "Due Date (Oldest)" -> getDueDateComparable(a.first.date, a.first.creditDays).compareTo(getDueDateComparable(b.first.date, b.first.creditDays))
+                        else -> { // "New First", "Newest First"
+                            val dCmp = b.first.date.compareTo(a.first.date)
+                            if (dCmp != 0) dCmp else compareBillNumbers(b.first.billNumber, a.first.billNumber)
+                        }
                     }
                 }
 
-                // Lazy load logic (show top 5 first, then click Show All for performance)
-                val visibleBills = if (showAllBillsOfParty) filteredBillsOfParty else filteredBillsOfParty.take(5)
+                val visibleBills = filteredBillsOfParty
 
                 Column(
                     modifier = Modifier
@@ -6296,21 +6578,57 @@ fun PaymentListScreen(navController: NavController, viewModel: RanisaViewModel) 
                     // Header / Navigation Row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        IconButton(onClick = { selectedPartyName = null }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to Parties List", tint = MaterialTheme.colorScheme.primary)
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            IconButton(onClick = { selectedPartyName = null }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to Parties List", tint = MaterialTheme.colorScheme.primary)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Party Ledger - $partyName",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Party Ledger - $partyName",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
+
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            var showShareSheet by remember { mutableStateOf(false) }
+                            OutlinedButton(
+                                onClick = { showShareSheet = true },
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.surface,
+                                    contentColor = MaterialTheme.colorScheme.primary
+                                ),
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .testTag("share_full_party_ledger_button")
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = "Share Full Ledger", modifier = Modifier.size(20.dp))
+                            }
+
+                            LedgerSortFilterButton(
+                                selectedOption = sortOptionPartyLedger,
+                                onOptionSelected = { sortOptionPartyLedger = it }
+                            )
+
+                            if (showShareSheet) {
+                                FullLedgerShareSheet(
+                                    ledgerName = partyName,
+                                    ledgerType = "party",
+                                    bills = partyBillsAndData.map { it.first },
+                                    payments = payments,
+                                    onDismissRequest = { showShareSheet = false }
+                                )
+                            }
+                        }
                     }
 
                     // Bills Header with Filter Button
@@ -6567,7 +6885,7 @@ fun PaymentListScreen(navController: NavController, viewModel: RanisaViewModel) 
 
                     // Horizontally Scrollable Party Bills Table
                     Box(modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                        Column(modifier = Modifier.widthIn(min = 1570.dp)) {
+                        Column(modifier = Modifier.widthIn(min = 1620.dp)) {
                             // Header Row
                             Row(
                                 modifier = Modifier
@@ -6577,6 +6895,7 @@ fun PaymentListScreen(navController: NavController, viewModel: RanisaViewModel) 
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                Text("S.N.", modifier = Modifier.width(50.dp), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
                                 Text("Bill No", modifier = Modifier.width(80.dp), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                                 Text("Date", modifier = Modifier.width(90.dp), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                                 Text("Due Date", modifier = Modifier.width(100.dp), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
@@ -6630,6 +6949,7 @@ fun PaymentListScreen(navController: NavController, viewModel: RanisaViewModel) 
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
+                                            Text("${index + 1}", modifier = Modifier.width(50.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                                             Text(
                                                 text = bill.billNumber,
                                                 modifier = Modifier
@@ -6874,23 +7194,7 @@ fun PaymentListScreen(navController: NavController, viewModel: RanisaViewModel) 
                         }
                     }
 
-                    // Lazy Load pagination button if applicable
-                    if (!showAllBillsOfParty && filteredBillsOfParty.size > 5) {
-                        Button(
-                            onClick = { showAllBillsOfParty = true },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                        ) {
-                            Text("Load Remaining (${filteredBillsOfParty.size - 5}) Bills")
-                        }
-                    } else if (showAllBillsOfParty) {
-                        TextButton(
-                            onClick = { showAllBillsOfParty = false },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Show Less (Collapse to 5)", color = MaterialTheme.colorScheme.primary)
-                        }
-                    }
+
                 }
             }
         }
@@ -8493,6 +8797,9 @@ fun LogHistoryScreen(viewModel: RanisaViewModel) {
 
     // 11. Custom Fullscreen Deep Inspection Dialog
     selectedLogForDetail?.let { doc ->
+        BackHandler(enabled = selectedLogForDetail != null) {
+            selectedLogForDetail = null
+        }
         val logId = doc.getString("logId") ?: doc.id
         val userName = doc.getString("userName") ?: "System"
         val userEmail = doc.getString("userEmail") ?: "N/A"
@@ -9280,9 +9587,8 @@ fun SettingsScreen(navController: NavController, viewModel: RanisaViewModel) {
 fun SearchScreen(navController: NavController, viewModel: RanisaViewModel) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val query by viewModel.globalSearchQuery.collectAsState()
-    val bills by viewModel.filteredBills.collectAsState()
-    val payments by viewModel.filteredPayments.collectAsState()
     val allBills by viewModel.allBills.collectAsState()
+    val allPayments by viewModel.allPayments.collectAsState()
 
     var showEditPaymentDialog by remember { mutableStateOf(false) }
     var editingBill by remember { mutableStateOf<ContractBill?>(null) }
@@ -9295,67 +9601,409 @@ fun SearchScreen(navController: NavController, viewModel: RanisaViewModel) {
     var paymentRefValue by remember { mutableStateOf("") }
     var paymentNotesValue by remember { mutableStateOf("") }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Global Database Search", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text("Query any Buyer Name, Seller Name, Mandi, Bill Number, Date, or payment mode instantly.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    // Date Filter & Sorting States
+    var selectedPreset by rememberSaveable { mutableStateOf("All Time") }
+    var selectedDateRange by remember { mutableStateOf<Pair<Long, Long>?>(null) }
+    var selectedDateRangeLabel by rememberSaveable { mutableStateOf("") }
+    var showDateFilterDialog by remember { mutableStateOf(false) }
+    var showCustomDateRangeDialog by remember { mutableStateOf(false) }
 
-        EnterpriseSearchField(
-            value = query,
-            onValueChange = { viewModel.updateGlobalSearch(it) },
-            placeholder = "Enter search term...",
-            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-            onClear = { viewModel.updateGlobalSearch("") },
-            testTag = "global_search_input"
-        )
+    val defaultNow = java.util.Calendar.getInstance()
+    var customFromMillis by remember { mutableStateOf(defaultNow.apply { set(java.util.Calendar.DAY_OF_MONTH, 1) }.timeInMillis) }
+    var customToMillis by remember { mutableStateOf(java.util.Calendar.getInstance().timeInMillis) }
 
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.weight(1f)) {
-            if (bills.isNotEmpty()) {
-                item {
-                    Text("Matching Contract Bills (${bills.size})", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 4.dp))
+    var sortOption by rememberSaveable { mutableStateOf("Newest First") }
+    var showSortMenu by remember { mutableStateOf(false) }
+
+    var isFiltering by remember { mutableStateOf(false) }
+    LaunchedEffect(selectedDateRange, query, sortOption) {
+        isFiltering = true
+        kotlinx.coroutines.delay(100)
+        isFiltering = false
+    }
+
+    val filteredBillsInDateRange = remember(allBills, query, selectedDateRange, sortOption) {
+        val list = allBills.filter { bill ->
+            val matchesQuery = query.isBlank() ||
+                bill.billNumber.contains(query, ignoreCase = true) ||
+                bill.buyerName.contains(query, ignoreCase = true) ||
+                bill.sellerName.contains(query, ignoreCase = true) ||
+                bill.brokerName.contains(query, ignoreCase = true) ||
+                bill.place.contains(query, ignoreCase = true) ||
+                bill.date.contains(query, ignoreCase = true) ||
+                bill.remarks.contains(query, ignoreCase = true)
+
+            if (!matchesQuery) return@filter false
+
+            if (selectedDateRange != null) {
+                val billTime = parseDateToMillis(bill.date)
+                if (billTime != null) {
+                    billTime >= selectedDateRange!!.first && billTime <= selectedDateRange!!.second
+                } else true
+            } else true
+        }
+
+        when (sortOption) {
+            "Oldest First" -> list.sortedWith { a, b ->
+                val dCmp = a.date.compareTo(b.date)
+                if (dCmp != 0) dCmp else compareBillNumbers(a.billNumber, b.billNumber)
+            }
+            "Bill Number Ascending" -> list.sortedWith { a, b -> compareBillNumbers(a.billNumber, b.billNumber) }
+            "Bill Number Descending" -> list.sortedWith { a, b -> compareBillNumbers(b.billNumber, a.billNumber) }
+            else -> list.sortedWith { a, b -> // "Newest First"
+                val dCmp = b.date.compareTo(a.date)
+                if (dCmp != 0) dCmp else compareBillNumbers(b.billNumber, a.billNumber)
+            }
+        }
+    }
+
+    val filteredPaymentsInDateRange = remember(allPayments, query, selectedDateRange) {
+        allPayments.filter { payment ->
+            val matchesQuery = query.isBlank() ||
+                payment.buyerName.contains(query, ignoreCase = true) ||
+                payment.date.contains(query, ignoreCase = true) ||
+                payment.paymentMode.contains(query, ignoreCase = true) ||
+                payment.remarks.contains(query, ignoreCase = true)
+
+            if (!matchesQuery) return@filter false
+
+            if (selectedDateRange != null) {
+                val payTime = parseDateToMillis(payment.date.ifBlank { payment.createdAt })
+                if (payTime != null) {
+                    payTime >= selectedDateRange!!.first && payTime <= selectedDateRange!!.second
+                } else true
+            } else true
+        }
+    }
+
+    // Dynamic Summary Metrics
+    val summaryTotalBills = filteredBillsInDateRange.size
+    val summaryTotalBillAmount = filteredBillsInDateRange.sumOf { it.billAmount }
+    val summaryTotalPendingAmount = filteredBillsInDateRange.sumOf { maxOf(0.0, it.balance) }
+    val summaryTotalReceivedAmount = maxOf(0.0, summaryTotalBillAmount - summaryTotalPendingAmount)
+
+    val summaryTotalBuyers = filteredBillsInDateRange.map { it.buyerName.trim() }.filter { it.isNotBlank() }.distinct().size
+    val summaryTotalSellers = filteredBillsInDateRange.map { it.sellerName.trim() }.filter { it.isNotBlank() }.distinct().size
+    val summaryTotalBrokers = filteredBillsInDateRange.map { it.brokerName.trim() }.filter { it.isNotBlank() }.distinct().size
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(12.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                "Global Database Search",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        // Search Bar Row with Compact Calendar Icon Button & Sort Button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            EnterpriseSearchField(
+                value = query,
+                onValueChange = { viewModel.updateGlobalSearch(it) },
+                placeholder = "Search buyer, seller, bill #...",
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp),
+                onClear = { viewModel.updateGlobalSearch("") },
+                testTag = "global_search_input"
+            )
+
+            // Compact Calendar Icon Button (48dp x 48dp)
+            OutlinedButton(
+                onClick = { showDateFilterDialog = true },
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(
+                    1.dp,
+                    if (selectedDateRange != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                ),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = if (selectedDateRange != null) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.primary
+                ),
+                contentPadding = PaddingValues(0.dp),
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag("global_search_date_filter_button")
+            ) {
+                Icon(
+                    Icons.Default.CalendarToday,
+                    contentDescription = "Date Range Filter",
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            // Compact Sort Options Button (48dp x 48dp)
+            Box {
+                OutlinedButton(
+                    onClick = { showSortMenu = true },
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.primary
+                    ),
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("global_search_sort_button")
+                ) {
+                    Icon(
+                        Icons.Default.Sort,
+                        contentDescription = "Sort Options",
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
-                items(bills) { b ->
+
+                DropdownMenu(
+                    expanded = showSortMenu,
+                    onDismissRequest = { showSortMenu = false }
+                ) {
+                    listOf("Newest First", "Oldest First", "Bill Number Ascending", "Bill Number Descending").forEach { option ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = option,
+                                    fontWeight = if (sortOption == option) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (sortOption == option) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 13.sp
+                                )
+                            },
+                            onClick = {
+                                sortOption = option
+                                showSortMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        // Selected Date Filter Chip (Below Search Bar)
+        if (selectedDateRange != null && selectedDateRangeLabel.isNotBlank()) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+                modifier = Modifier.height(34.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 10.dp)
+                ) {
+                    Icon(
+                        Icons.Default.CalendarToday,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = selectedDateRangeLabel,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Clear Filter",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clickable {
+                                selectedPreset = "All Time"
+                                selectedDateRange = null
+                                selectedDateRangeLabel = ""
+                            }
+                    )
+                }
+            }
+        }
+
+        // Compact Summary Metrics Card (Two-Column Grid)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+            shape = RoundedCornerShape(10.dp)
+        ) {
+            Column(modifier = Modifier.padding(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Range: ${if (selectedDateRangeLabel.isNotBlank()) selectedDateRangeLabel else "All Time"}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Total Bills: $summaryTotalBills",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 6.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                )
+
+                // Two-Column Grid
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Column 1
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text("💰 Total: ${formatCurrency(summaryTotalBillAmount)}", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text("✅ Received: ${formatCurrency(summaryTotalReceivedAmount)}", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                        Text("👥 Buyers: $summaryTotalBuyers  |  🏢 Sellers: $summaryTotalSellers", fontSize = 9.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Column 2
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text("⏳ Pending: ${formatCurrency(summaryTotalPendingAmount)}", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                        Text("🤝 Brokers: $summaryTotalBrokers", fontSize = 10.5.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+
+        if (isFiltering) {
+            Box(modifier = Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+            }
+        }
+
+        if (filteredBillsInDateRange.isNotEmpty()) {
+            Text(
+                "Matching Contract Bills (${filteredBillsInDateRange.size})",
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                filteredBillsInDateRange.forEach { b ->
                     Card(
                         onClick = { navController.navigate("bill_entry/${b.firmName}/${b.id}") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Bill: ${b.billNumber}", fontWeight = FontWeight.Bold)
+                        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Bill #${b.billNumber}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                 Text(b.date, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Text("Seller: ${b.sellerName} ➔ Buyer: ${b.buyerName}", fontSize = 13.sp)
-                            Text("Bill Amt: ₹${String.format("%.2f", b.billAmount)} | Balance Amount: ₹${String.format("%.2f", b.balance)}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "${b.sellerName}  ➔  ${b.buyerName}",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "Amt: ${formatCurrency(b.billAmount)}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    "Bal: ${formatCurrency(b.balance)}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (b.balance > 0) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
+                                )
+                            }
                         }
                     }
                 }
             }
+        }
 
-            if (payments.isNotEmpty()) {
-                item {
-                    Text("Matching Payment Receipts (${payments.size})", fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32), modifier = Modifier.padding(vertical = 4.dp))
-                }
-                items(payments) { p ->
+        if (filteredPaymentsInDateRange.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                "Matching Payment Receipts (${filteredPaymentsInDateRange.size})",
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                color = Color(0xFF2E7D32),
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                filteredPaymentsInDateRange.forEach { p ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        shape = RoundedCornerShape(8.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(p.buyerName, fontWeight = FontWeight.Bold)
-                                Text(p.date, fontSize = 11.sp)
+                        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(p.buyerName, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(p.date, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(2.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("Mode: ${p.paymentMode} | Bank: ${p.bankName.ifBlank { "N/A" }}", fontSize = 12.sp)
-                                    Text("Receipt: ₹${String.format("%.2f", p.amount)}", fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                    Text("Mode: ${p.paymentMode} | Bank: ${p.bankName.ifBlank { "N/A" }}", fontSize = 11.sp)
+                                    Text("Receipt: ${formatCurrency(p.amount)}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
                                 }
                                 Row(
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     val matchingBill = allBills.find { it.billNumber.trim() == p.billNo.trim() && it.firmName.trim().replace(" ", "").equals(p.firm.trim().replace(" ", ""), ignoreCase = true) }
@@ -9385,7 +10033,7 @@ fun SearchScreen(navController: NavController, viewModel: RanisaViewModel) {
                                         },
                                         modifier = Modifier.size(28.dp)
                                     ) {
-                                        Text("✏️", fontSize = 13.sp)
+                                        Text("✏️", fontSize = 12.sp)
                                     }
                                     IconButton(
                                         onClick = {
@@ -9401,7 +10049,7 @@ fun SearchScreen(navController: NavController, viewModel: RanisaViewModel) {
                                         },
                                         modifier = Modifier.size(28.dp)
                                     ) {
-                                        Text("❌", fontSize = 13.sp)
+                                        Text("❌", fontSize = 12.sp)
                                     }
                                 }
                             }
@@ -9409,15 +10057,182 @@ fun SearchScreen(navController: NavController, viewModel: RanisaViewModel) {
                     }
                 }
             }
+        }
 
-            if (bills.isEmpty() && payments.isEmpty() && query.isNotBlank()) {
-                item {
-                    Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                        Text("No matching results found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+        if (filteredBillsInDateRange.isEmpty() && filteredPaymentsInDateRange.isEmpty()) {
+            Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                if (selectedDateRange != null) {
+                    Text("No bills found for the selected date range.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                } else if (query.isNotBlank()) {
+                    Text("No matching results found.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                } else {
+                    Text("Type a search term or select a date range filter.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                 }
             }
         }
+    }
+
+    // Date Filter Presets Dialog
+    if (showDateFilterDialog) {
+        AlertDialog(
+            onDismissRequest = { showDateFilterDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.CalendarToday, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Select Date Range", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    listOf(
+                        "Today",
+                        "Yesterday",
+                        "This Week",
+                        "Last Week",
+                        "This Month",
+                        "Last Month",
+                        "This Year",
+                        "Custom Date Range",
+                        "Clear Filter"
+                    ).forEach { option ->
+                        Surface(
+                            onClick = {
+                                showDateFilterDialog = false
+                                if (option == "Custom Date Range") {
+                                    showCustomDateRangeDialog = true
+                                } else if (option == "Clear Filter") {
+                                    selectedPreset = "All Time"
+                                    selectedDateRange = null
+                                    selectedDateRangeLabel = ""
+                                } else {
+                                    selectedPreset = option
+                                    val (range, label) = computeDateRange(option)
+                                    selectedDateRange = range
+                                    selectedDateRangeLabel = label
+                                }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (selectedPreset == option) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = option,
+                                    fontWeight = if (selectedPreset == option) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (selectedPreset == option) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 14.sp
+                                )
+                                if (selectedPreset == option) {
+                                    Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showDateFilterDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Custom Date Range Dialog
+    if (showCustomDateRangeDialog) {
+        val sdfDisplay = java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault())
+
+        AlertDialog(
+            onDismissRequest = { showCustomDateRangeDialog = false },
+            title = {
+                Text("Select Custom Date Range", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Select From Date and To Date:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                    // From Date Card
+                    Card(
+                        onClick = {
+                            showNativeDatePicker(context, customFromMillis) { picked ->
+                                customFromMillis = picked
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text("From Date", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(sdfDisplay.format(java.util.Date(customFromMillis)), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                            Icon(Icons.Default.CalendarToday, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+
+                    // To Date Card
+                    Card(
+                        onClick = {
+                            showNativeDatePicker(context, customToMillis) { picked ->
+                                customToMillis = picked
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text("To Date", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(sdfDisplay.format(java.util.Date(customToMillis)), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                            Icon(Icons.Default.CalendarToday, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showCustomDateRangeDialog = false
+                        selectedPreset = "Custom Date Range"
+                        val (range, label) = computeDateRange("Custom Date Range", customFromMillis, customToMillis)
+                        selectedDateRange = range
+                        selectedDateRangeLabel = label
+                    }
+                ) {
+                    Text("Apply")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCustomDateRangeDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     EditPaymentDialog(
@@ -9430,6 +10245,153 @@ fun SearchScreen(navController: NavController, viewModel: RanisaViewModel) {
         viewModel = viewModel
     )
 }
+
+// Helper Functions for Date Range Calculations
+fun parseDateToMillis(dateStr: String): Long? {
+    if (dateStr.isBlank()) return null
+    val cleanStr = dateStr.trim()
+    val formats = listOf(
+        "yyyy-MM-dd",
+        "dd-MM-yyyy",
+        "dd/MM/yyyy",
+        "yyyy/MM/dd",
+        "yyyy-MM-dd HH:mm:ss",
+        "dd-MM-yyyy HH:mm:ss"
+    )
+    for (fmt in formats) {
+        try {
+            val sdf = java.text.SimpleDateFormat(fmt, java.util.Locale.getDefault())
+            sdf.isLenient = false
+            val date = sdf.parse(cleanStr)
+            if (date != null) return date.time
+        } catch (_: Exception) {}
+    }
+    return null
+}
+
+fun computeDateRange(
+    preset: String,
+    customStart: Long? = null,
+    customEnd: Long? = null
+): Pair<Pair<Long, Long>?, String> {
+    val sdfFormat = java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault())
+    val now = java.util.Calendar.getInstance()
+
+    fun startOfDay(c: java.util.Calendar): java.util.Calendar {
+        val cal = c.clone() as java.util.Calendar
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        return cal
+    }
+
+    fun endOfDay(c: java.util.Calendar): java.util.Calendar {
+        val cal = c.clone() as java.util.Calendar
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 23)
+        cal.set(java.util.Calendar.MINUTE, 59)
+        cal.set(java.util.Calendar.SECOND, 59)
+        cal.set(java.util.Calendar.MILLISECOND, 999)
+        return cal
+    }
+
+    return when (preset) {
+        "Today" -> {
+            val start = startOfDay(now).timeInMillis
+            val end = endOfDay(now).timeInMillis
+            Pair(Pair(start, end), "${sdfFormat.format(java.util.Date(start))}")
+        }
+        "Yesterday" -> {
+            val yest = (now.clone() as java.util.Calendar).apply { add(java.util.Calendar.DAY_OF_YEAR, -1) }
+            val start = startOfDay(yest).timeInMillis
+            val end = endOfDay(yest).timeInMillis
+            Pair(Pair(start, end), "${sdfFormat.format(java.util.Date(start))}")
+        }
+        "This Week" -> {
+            val startCal = (now.clone() as java.util.Calendar).apply {
+                set(java.util.Calendar.DAY_OF_WEEK, firstDayOfWeek)
+            }
+            val start = startOfDay(startCal).timeInMillis
+            val end = endOfDay(now).timeInMillis
+            Pair(Pair(start, end), "${sdfFormat.format(java.util.Date(start))} – ${sdfFormat.format(java.util.Date(end))}")
+        }
+        "Last Week" -> {
+            val startCal = (now.clone() as java.util.Calendar).apply {
+                set(java.util.Calendar.DAY_OF_WEEK, firstDayOfWeek)
+                add(java.util.Calendar.WEEK_OF_YEAR, -1)
+            }
+            val endCal = (startCal.clone() as java.util.Calendar).apply {
+                add(java.util.Calendar.DAY_OF_WEEK, 6)
+            }
+            val start = startOfDay(startCal).timeInMillis
+            val end = endOfDay(endCal).timeInMillis
+            Pair(Pair(start, end), "${sdfFormat.format(java.util.Date(start))} – ${sdfFormat.format(java.util.Date(end))}")
+        }
+        "This Month" -> {
+            val startCal = (now.clone() as java.util.Calendar).apply { set(java.util.Calendar.DAY_OF_MONTH, 1) }
+            val endCal = (now.clone() as java.util.Calendar).apply { set(java.util.Calendar.DAY_OF_MONTH, getActualMaximum(java.util.Calendar.DAY_OF_MONTH)) }
+            val start = startOfDay(startCal).timeInMillis
+            val end = endOfDay(endCal).timeInMillis
+            Pair(Pair(start, end), "${sdfFormat.format(java.util.Date(start))} – ${sdfFormat.format(java.util.Date(end))}")
+        }
+        "Last Month" -> {
+            val startCal = (now.clone() as java.util.Calendar).apply {
+                add(java.util.Calendar.MONTH, -1)
+                set(java.util.Calendar.DAY_OF_MONTH, 1)
+            }
+            val endCal = (startCal.clone() as java.util.Calendar).apply {
+                set(java.util.Calendar.DAY_OF_MONTH, getActualMaximum(java.util.Calendar.DAY_OF_MONTH))
+            }
+            val start = startOfDay(startCal).timeInMillis
+            val end = endOfDay(endCal).timeInMillis
+            Pair(Pair(start, end), "${sdfFormat.format(java.util.Date(start))} – ${sdfFormat.format(java.util.Date(end))}")
+        }
+        "This Year" -> {
+            val startCal = (now.clone() as java.util.Calendar).apply { set(java.util.Calendar.DAY_OF_YEAR, 1) }
+            val endCal = (now.clone() as java.util.Calendar).apply { set(java.util.Calendar.DAY_OF_YEAR, getActualMaximum(java.util.Calendar.DAY_OF_YEAR)) }
+            val start = startOfDay(startCal).timeInMillis
+            val end = endOfDay(endCal).timeInMillis
+            Pair(Pair(start, end), "${sdfFormat.format(java.util.Date(start))} – ${sdfFormat.format(java.util.Date(end))}")
+        }
+        "Custom Date Range" -> {
+            if (customStart != null && customEnd != null) {
+                val minM = minOf(customStart, customEnd)
+                val maxM = maxOf(customStart, customEnd)
+                val sCal = java.util.Calendar.getInstance().apply { timeInMillis = minM }
+                val eCal = java.util.Calendar.getInstance().apply { timeInMillis = maxM }
+                val start = startOfDay(sCal).timeInMillis
+                val end = endOfDay(eCal).timeInMillis
+                Pair(Pair(start, end), "${sdfFormat.format(java.util.Date(start))} – ${sdfFormat.format(java.util.Date(end))}")
+            } else {
+                Pair(null, "")
+            }
+        }
+        else -> Pair(null, "All Time")
+    }
+}
+
+fun showNativeDatePicker(context: android.content.Context, initialMillis: Long, onDateSelected: (Long) -> Unit) {
+    val cal = java.util.Calendar.getInstance().apply { timeInMillis = initialMillis }
+    android.app.DatePickerDialog(
+        context,
+        { _, year, month, dayOfMonth ->
+            val selCal = java.util.Calendar.getInstance().apply {
+                set(java.util.Calendar.YEAR, year)
+                set(java.util.Calendar.MONTH, month)
+                set(java.util.Calendar.DAY_OF_MONTH, dayOfMonth)
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }
+            onDateSelected(selCal.timeInMillis)
+        },
+        cal.get(java.util.Calendar.YEAR),
+        cal.get(java.util.Calendar.MONTH),
+        cal.get(java.util.Calendar.DAY_OF_MONTH)
+    ).show()
+}
+
 
 // =========================================================================
 // PREMIUM ACCOUNTING CARD UI HELPERS
@@ -9592,6 +10554,60 @@ fun EditPaymentDialog(
                     color = MaterialTheme.colorScheme.primary
                 )
 
+                // Read Only Information Card (Bill Amount & Lorry Freight)
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                    color = Color.White,
+                    border = BorderStroke(1.dp, Color(0xFFE5E7EB))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Bill Amount",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Normal,
+                                color = Color(0xFF374151)
+                            )
+                            Text(
+                                text = String.format(java.util.Locale.US, "₹%,.2f", bill.billAmount),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF111827),
+                                textAlign = TextAlign.End
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Lorry Freight",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Normal,
+                                color = Color(0xFF374151)
+                            )
+                            Text(
+                                text = String.format(java.util.Locale.US, "₹%,.2f", bill.lorryFreight),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF111827),
+                                textAlign = TextAlign.End
+                            )
+                        }
+                    }
+                }
+
                 // Payment Received (₹)
                 EnterpriseTextField(
                     value = paymentReceivedValue,
@@ -9647,11 +10663,11 @@ fun EditPaymentDialog(
                     singleLine = true
                 )
 
-                // Remark Amt - Numeric only
+                // Remark Amount - Numeric only
                 EnterpriseTextField(
                     value = remarks1Value,
                     onValueChange = { remarks1Value = it },
-                    label = "Remark Amt",
+                    label = "Remark Amount",
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -9703,11 +10719,11 @@ fun EditPaymentDialog(
                                 return@EnterprisePrimaryButton
                             }
                             if (remarks1Value.isNotBlank() && remarks1Value.toDoubleOrNull() == null) {
-                                Toast.makeText(context, "Remark Amt must be a valid number", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Remark Amount must be a valid number", Toast.LENGTH_SHORT).show()
                                 return@EnterprisePrimaryButton
                             }
                             if (enteredRemarkAmt < 0.0) {
-                                Toast.makeText(context, "Remark Amt cannot be negative", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Remark Amount cannot be negative", Toast.LENGTH_SHORT).show()
                                 return@EnterprisePrimaryButton
                             }
 
@@ -9792,7 +10808,6 @@ fun BrokerLedgerScreen(
     var showPdfPreview by remember { mutableStateOf(false) }
     var showDeleteBillDialog by remember { mutableStateOf(false) }
     var billToDelete by remember { mutableStateOf<ContractBill?>(null) }
-    var pageLimit by remember { mutableStateOf(500) }
 
     // Auto-select broker if preselectedBroker is provided
     LaunchedEffect(preselectedBroker, brokersList) {
@@ -10018,6 +11033,8 @@ fun BrokerLedgerScreen(
                     var registrySearchQuery by remember { mutableStateOf("") }
                     val registryFocusRequester = remember { FocusRequester() }
 
+                    var selectedSortOptionBrokerLedger by rememberSaveable { mutableStateOf("New First") }
+
                     val brokerBills = remember(bills, currentBroker) {
                         bills.filter { 
                             (it.brokerId.isNotBlank() && it.brokerId == currentBroker.brokerId) || 
@@ -10025,8 +11042,8 @@ fun BrokerLedgerScreen(
                         }
                     }
 
-                    val filteredBrokerBills = remember(brokerBills, registrySearchQuery) {
-                        if (registrySearchQuery.isBlank()) brokerBills else {
+                    val filteredBrokerBills = remember(brokerBills, registrySearchQuery, selectedSortOptionBrokerLedger) {
+                        val filtered = if (registrySearchQuery.isBlank()) brokerBills else {
                             brokerBills.filter { bill ->
                                 bill.billNumber.contains(registrySearchQuery, ignoreCase = true) ||
                                 bill.buyerName.contains(registrySearchQuery, ignoreCase = true) ||
@@ -10034,6 +11051,7 @@ fun BrokerLedgerScreen(
                                 bill.date.contains(registrySearchQuery, ignoreCase = true)
                             }
                         }
+                        sortContractBills(filtered, selectedSortOptionBrokerLedger)
                     }
 
                     // AppBar
@@ -10082,18 +11100,26 @@ fun BrokerLedgerScreen(
                         }
                         if (!isRegistrySearchActive) {
                             var showShareSheet by remember { mutableStateOf(false) }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(
                                     onClick = { showShareSheet = true },
-                                    shape = RoundedCornerShape(24.dp),
+                                    shape = RoundedCornerShape(12.dp),
                                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
-                                    modifier = Modifier.padding(end = 4.dp).testTag("share_full_broker_ledger_button")
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.surface,
+                                        contentColor = MaterialTheme.colorScheme.primary
+                                    ),
+                                    contentPadding = PaddingValues(0.dp),
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .testTag("share_full_broker_ledger_button")
                                 ) {
-                                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Share Full Ledger", fontSize = 11.sp)
+                                    Icon(Icons.Default.Share, contentDescription = "Share Full Ledger", modifier = Modifier.size(20.dp))
                                 }
+                                LedgerSortFilterButton(
+                                    selectedOption = selectedSortOptionBrokerLedger,
+                                    onOptionSelected = { selectedSortOptionBrokerLedger = it }
+                                )
                                 IconButton(
                                     onClick = { isRegistrySearchActive = true },
                                     modifier = Modifier.testTag("broker_registry_search_button")
@@ -10146,9 +11172,7 @@ fun BrokerLedgerScreen(
                                 Text("No contract bills found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         } else {
-                            val paginatedBills = remember(filteredBrokerBills, pageLimit) {
-                                filteredBrokerBills.take(pageLimit)
-                            }
+                            val paginatedBills = filteredBrokerBills
 
                             Box(
                                 modifier = Modifier
@@ -10167,6 +11191,7 @@ fun BrokerLedgerScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         val headers = listOf(
+                                            "S.N." to 50,
                                             "Date" to 90, 
                                             "Bill No" to 80, 
                                             "Seller Name" to 150, 
@@ -10193,7 +11218,7 @@ fun BrokerLedgerScreen(
                                     LazyColumn(
                                         modifier = Modifier.weight(1f)
                                     ) {
-                                        items(paginatedBills) { bill ->
+                                        itemsIndexed(paginatedBills, key = { _, bill -> bill.id }) { index, bill ->
                                             val billPayments = remember(payments, bill.billNumber) {
                                                 payments.filter { p ->
                                                     p.billNo.trim().equals(bill.billNumber.trim(), ignoreCase = true)
@@ -10212,6 +11237,9 @@ fun BrokerLedgerScreen(
                                                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                                                     verticalAlignment = Alignment.CenterVertically
                                                 ) {
+                                                    // S.N. (50dp)
+                                                    RegisterField("${index + 1}", 50)
+
                                                     // 1. Date (90dp)
                                                     RegisterField(bill.date, 90)
 
@@ -10331,24 +11359,6 @@ fun BrokerLedgerScreen(
                                                     }
                                                 }
                                                 HorizontalDivider(color = Color(0xFF2D2937), thickness = 1.dp)
-                                            }
-                                        }
-
-                                        if (filteredBrokerBills.size > pageLimit) {
-                                            item {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(8.dp),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Button(
-                                                        onClick = { pageLimit += 500 },
-                                                        shape = RoundedCornerShape(8.dp)
-                                                    ) {
-                                                        Text("Load More (Showing $pageLimit of ${filteredBrokerBills.size})", fontSize = 12.sp)
-                                                    }
-                                                }
                                             }
                                         }
                                     }

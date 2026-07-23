@@ -114,12 +114,16 @@ fun SellerMasterListScreen(
                 },
                 navigationIcon = {
                     IconButton(
-                        onClick = onMenuClick,
-                        modifier = Modifier.testTag("seller_master_menu_button")
+                        onClick = {
+                            if (!navController.popBackStack()) {
+                                onMenuClick()
+                            }
+                        },
+                        modifier = Modifier.testTag("seller_master_back_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Menu,
-                            contentDescription = "Open Drawer Menu",
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Back",
                             tint = MaterialTheme.colorScheme.onPrimary
                         )
                     }
